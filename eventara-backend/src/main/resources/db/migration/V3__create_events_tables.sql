@@ -1,0 +1,2 @@
+-- Flyway migration V3: Create events, event_categories, seat_sections,
+-- seats, pricing_tiers tables

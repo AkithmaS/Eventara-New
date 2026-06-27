@@ -1,0 +1,2 @@
+-- Flyway migration V2: Create organizer_profiles table
+-- FK to users; includes application_status enum column

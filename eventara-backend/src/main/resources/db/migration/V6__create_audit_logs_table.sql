@@ -1,0 +1,2 @@
+-- Flyway migration V6: Create audit_logs, system_settings,
+-- refresh_tokens, notification_logs tables

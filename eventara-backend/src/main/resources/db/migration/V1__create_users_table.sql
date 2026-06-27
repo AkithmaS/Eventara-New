@@ -1,0 +1,2 @@
+-- Flyway migration V1: Create users table
+-- Schema for user entity including roles and status
