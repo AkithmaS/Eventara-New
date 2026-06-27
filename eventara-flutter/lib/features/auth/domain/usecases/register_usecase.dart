@@ -1,0 +1,1 @@
+// RegisterUseCase — calls authRepository.register

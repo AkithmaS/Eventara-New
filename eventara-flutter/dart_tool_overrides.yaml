@@ -1,0 +1,3 @@
+# This file helps work around the objective_c package issue on Windows with spaces in path
+# The objective_c package is only for iOS/macOS native development
+# For web builds, we don't need native assets from this package

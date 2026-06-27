@@ -1,0 +1,98 @@
+# ── Secrets & Environment ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example                        # Keep the example template committed
+secrets.json
+.secrets/
+.local/
+config/secrets/
+firebase.json
+.flutterfire
+
+# ── API Keys & Tokens ─────────────────────────────────────────────────────────
+api_keys.dart
+constants/secrets.dart
+lib/config/secrets.dart
+lib/secrets.dart
+
+# ── Keys, Certificates & Credentials ─────────────────────────────────────────
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+*.cer
+*.pfx
+keystore.properties
+key.properties                       # Android signing config
+google-services.json                 # Firebase Android config
+GoogleService-Info.plist             # Firebase iOS config
+*.mobileprovision
+*.provisionprofile
+AuthKey_*.p8                         # Apple push notification key
+
+# ── Flutter / Dart ────────────────────────────────────────────────────────────
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+.pub-cache/
+.pub/
+pubspec.lock                         # Uncomment this line to ignore the lock file
+
+# ── Generated Code ────────────────────────────────────────────────────────────
+*.g.dart
+*.freezed.dart
+*.gr.dart
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# ── Android ───────────────────────────────────────────────────────────────────
+android/app/debug/
+android/app/profile/
+android/app/release/
+android/key.properties
+android/app/google-services.json
+android/local.properties
+**/android/gradle-wrapper.jar
+**/android/.gradle
+**/android/captures/
+**/android/gradlew
+**/android/gradlew.bat
+**/android/local.properties
+**/android/**/GeneratedPluginRegistrant.java
+
+# ── Flutter Ephemeral (auto-generated, never commit) ─────────────────────────
+ios/Flutter/ephemeral/
+ios/Flutter/Generated.xcconfig
+linux/flutter/ephemeral/
+windows/flutter/ephemeral/
+macos/Flutter/ephemeral/
+
+# ── iOS ───────────────────────────────────────────────────────────────────────
+**/ios/**/*.mode1v3
+**/ios/**/*.mode2v3
+**/ios/**/*.moved-aside
+**/ios/**/*.pbxuser
+**/ios/**/*.perspectivev3
+**/ios/**/*sync/
+**/ios/**/.sconsign.dblite
+**/ios/**/.tags*
+**/ios/**/.vagrant/
+**/ios/**/DerivedData/
+**/ios/**/Icon?
+**/ios/**/Pods/
+**/ios/**/profile
+**/ios/**/xcuserdata
+**/ios/.generated/
+**/ios/Flutter/.last_build_id
+ios/Podfile.lock
+ios/GoogleService-Info.plist
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
