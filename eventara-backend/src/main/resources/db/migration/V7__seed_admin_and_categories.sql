@@ -1,0 +1,3 @@
+-- Flyway migration V7: Seed default ROLE_ADMIN user (reads from env),
+-- seed default event categories (Music, Sports, Tech, Arts, Business)
+-- and default system_settings row

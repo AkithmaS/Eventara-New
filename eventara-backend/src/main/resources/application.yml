@@ -1,0 +1,57 @@
+﻿# ── Base application configuration (profile-agnostic defaults) ───────────────
+spring:
+  application:
+    name: eventara-backend
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  # JPA
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate            # Flyway manages schema; Hibernate only validates
+
+  # Flyway
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  # Mail (base)
+  mail:
+    host: ${MAIL_HOST}
+    port: ${MAIL_PORT}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
+  # Cache (Caffeine for seat locks)
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=10000,expireAfterWrite=5m
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: never         # Don't leak stack traces in prod
+
+# JWT
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration-ms: ${JWT_EXPIRATION_MS:900000}
+    refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:604800000}
+  admin:
+    email: ${ADMIN_EMAIL:admin@eventara.com}
+    password: ${ADMIN_PASSWORD}
+  qr:
+    storage-path: ${QR_STORAGE_PATH:/tmp/eventara/qr}
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics

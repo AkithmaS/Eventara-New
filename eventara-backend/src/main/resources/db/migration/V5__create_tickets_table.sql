@@ -1,0 +1,2 @@
+-- Flyway migration V5: Create tickets table
+-- qr_hash unique index for O(1) scan lookup

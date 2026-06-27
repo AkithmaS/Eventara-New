@@ -1,0 +1,2 @@
+-- Flyway migration V4: Create bookings, booking_items tables
+-- booking_reference unique index
