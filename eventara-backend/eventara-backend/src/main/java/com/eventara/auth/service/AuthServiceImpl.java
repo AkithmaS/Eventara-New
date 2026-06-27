@@ -8,20 +8,23 @@ import com.eventara.common.enums.OrganizerStatus;
 import com.eventara.common.enums.Role;
 import com.eventara.common.exception.BadRequestException;
 import com.eventara.common.exception.UnauthorizedException;
+import com.eventara.notification.entity.NotificationType;
+import com.eventara.notification.service.NotificationService;
 import com.eventara.organizer.dto.request.OrganizerApplicationRequest;
 import com.eventara.organizer.entity.Organizer;
 import com.eventara.organizer.repository.OrganizerRepository;
 import com.eventara.user.entity.User;
 import com.eventara.user.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
-@RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
     private final UserRepository userRepository;
@@ -29,6 +32,21 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final UserDetailsService userDetailsService;
+    private final NotificationService notificationService;
+
+    public AuthServiceImpl(UserRepository userRepository,
+                           OrganizerRepository organizerRepository,
+                           PasswordEncoder passwordEncoder,
+                           JwtUtil jwtUtil,
+                           UserDetailsService userDetailsService,
+                           @Lazy NotificationService notificationService) {
+        this.userRepository = userRepository;
+        this.organizerRepository = organizerRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtUtil = jwtUtil;
+        this.userDetailsService = userDetailsService;
+        this.notificationService = notificationService;
+    }
 
     // ── Register Customer ────────────────────────────────────────────────────
 
@@ -94,6 +112,20 @@ public class AuthServiceImpl implements AuthService {
                 .build();
 
         organizerRepository.save(organizer);
+
+        // ── Notify admin: new organizer application ───────────────────────────
+        userRepository.findAll().stream()
+                .filter(u -> u.getRole() == Role.ROLE_ADMIN)
+                .map(User::getId)
+                .findFirst()
+                .ifPresent(adminId -> notificationService.createNotification(
+                        adminId,
+                        "New Organizer Application",
+                        user.getFullName() + " has submitted an organizer application.",
+                        NotificationType.NEW_ORGANIZER_APPLICATION,
+                        organizer.getId(),
+                        "ORGANIZER"));
+
         // No JWT returned — account is pending admin approval
     }
 

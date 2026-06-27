@@ -7,19 +7,22 @@ import com.eventara.admin.repository.AuditLogRepository;
 import com.eventara.booking.repository.BookingRepository;
 import com.eventara.common.enums.EventStatus;
 import com.eventara.common.enums.OrganizerStatus;
+import com.eventara.common.enums.Role;
 import com.eventara.common.exception.BadRequestException;
 import com.eventara.common.exception.ResourceNotFoundException;
 import com.eventara.event.entity.Category;
 import com.eventara.event.entity.Event;
 import com.eventara.event.repository.CategoryRepository;
 import com.eventara.event.repository.EventRepository;
+import com.eventara.notification.entity.NotificationType;
+import com.eventara.notification.service.NotificationService;
 import com.eventara.organizer.entity.Organizer;
 import com.eventara.organizer.repository.OrganizerRepository;
 import com.eventara.ticket.repository.TicketRepository;
 import com.eventara.user.entity.User;
 import com.eventara.user.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,7 +32,6 @@ import java.util.List;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AdminServiceImpl implements AdminService {
 
     private final OrganizerRepository organizerRepository;
@@ -39,6 +41,25 @@ public class AdminServiceImpl implements AdminService {
     private final BookingRepository bookingRepository;
     private final TicketRepository ticketRepository;
     private final AuditLogRepository auditLogRepository;
+    private final NotificationService notificationService;
+
+    public AdminServiceImpl(OrganizerRepository organizerRepository,
+                            EventRepository eventRepository,
+                            UserRepository userRepository,
+                            CategoryRepository categoryRepository,
+                            BookingRepository bookingRepository,
+                            TicketRepository ticketRepository,
+                            AuditLogRepository auditLogRepository,
+                            @Lazy NotificationService notificationService) {
+        this.organizerRepository = organizerRepository;
+        this.eventRepository = eventRepository;
+        this.userRepository = userRepository;
+        this.categoryRepository = categoryRepository;
+        this.bookingRepository = bookingRepository;
+        this.ticketRepository = ticketRepository;
+        this.auditLogRepository = auditLogRepository;
+        this.notificationService = notificationService;
+    }
 
     // ── Organizer Management ─────────────────────────────────────────────────
 
@@ -81,6 +102,15 @@ public class AdminServiceImpl implements AdminService {
                 "Approved organizer: " + user.getEmail());
         log.info("Admin {} approved organizer id={}", adminEmail, organizerId);
 
+        // ── Notify organizer ─────────────────────────────────────────────────
+        notificationService.createNotification(
+                user.getId(),
+                "Application Approved",
+                "Congratulations! Your organizer application has been approved.",
+                NotificationType.ORGANIZER_APPROVED,
+                organizerId,
+                "ORGANIZER");
+
         return toOrganizerResponse(saved);
     }
 
@@ -102,6 +132,15 @@ public class AdminServiceImpl implements AdminService {
         saveAuditLog(adminEmail, "REJECTED_ORGANIZER", "ORGANIZER", organizerId,
                 "Reason: " + reason);
         log.info("Admin {} rejected organizer id={}, reason={}", adminEmail, organizerId, reason);
+
+        // ── Notify organizer ─────────────────────────────────────────────────
+        notificationService.createNotification(
+                organizer.getUser().getId(),
+                "Application Rejected",
+                "Your organizer application has been rejected. Reason: " + reason,
+                NotificationType.ORGANIZER_REJECTED,
+                organizerId,
+                "ORGANIZER");
 
         return toOrganizerResponse(saved);
     }
@@ -192,6 +231,16 @@ public class AdminServiceImpl implements AdminService {
                 "Approved event: " + event.getTitle());
         log.info("Admin {} approved event id={}", adminEmail, eventId);
 
+        // ── Notify organizer ─────────────────────────────────────────────────
+        organizerRepository.findByUser_Id(event.getOrganizerId()).ifPresent(org ->
+                notificationService.createNotification(
+                        org.getUser().getId(),
+                        "Event Approved",
+                        "Your event \"" + event.getTitle() + "\" has been approved and is now live.",
+                        NotificationType.EVENT_APPROVED,
+                        eventId,
+                        "EVENT"));
+
         return toEventResponse(saved);
     }
 
@@ -211,6 +260,16 @@ public class AdminServiceImpl implements AdminService {
         saveAuditLog(adminEmail, "REJECTED_EVENT", "EVENT", eventId,
                 "Reason: " + reason);
         log.info("Admin {} rejected event id={}, reason={}", adminEmail, eventId, reason);
+
+        // ── Notify organizer ─────────────────────────────────────────────────
+        organizerRepository.findByUser_Id(event.getOrganizerId()).ifPresent(org ->
+                notificationService.createNotification(
+                        org.getUser().getId(),
+                        "Event Rejected",
+                        "Your event \"" + event.getTitle() + "\" was rejected. Reason: " + reason,
+                        NotificationType.EVENT_REJECTED,
+                        eventId,
+                        "EVENT"));
 
         return toEventResponse(saved);
     }
@@ -409,6 +468,15 @@ public class AdminServiceImpl implements AdminService {
     private Category findCategoryById(Long id) {
         return categoryRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + id));
+    }
+
+    // Returns the first admin user's id, used by other services to notify admin
+    public Long findAdminUserId() {
+        return userRepository.findAll().stream()
+                .filter(u -> u.getRole() == Role.ROLE_ADMIN)
+                .map(User::getId)
+                .findFirst()
+                .orElse(null);
     }
 
     // ── Mappers ──────────────────────────────────────────────────────────────

@@ -2,18 +2,19 @@ package com.eventara.ticket.service;
 
 import com.eventara.booking.entity.Booking;
 import com.eventara.booking.repository.BookingRepository;
-import com.eventara.common.exception.BadRequestException;
 import com.eventara.common.exception.ResourceNotFoundException;
 import com.eventara.event.entity.Event;
 import com.eventara.event.repository.EventRepository;
+import com.eventara.notification.entity.NotificationType;
+import com.eventara.notification.service.NotificationService;
 import com.eventara.ticket.dto.response.TicketResponse;
 import com.eventara.ticket.entity.Ticket;
 import com.eventara.ticket.entity.TicketStatus;
 import com.eventara.ticket.repository.TicketRepository;
 import com.eventara.user.entity.User;
 import com.eventara.user.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,7 +24,6 @@ import java.util.Random;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TicketServiceImpl implements TicketService {
 
     private final TicketRepository ticketRepository;
@@ -31,8 +31,23 @@ public class TicketServiceImpl implements TicketService {
     private final UserRepository userRepository;
     private final EventRepository eventRepository;
     private final QRCodeService qrCodeService;
+    private final NotificationService notificationService;
 
     private static final Random RANDOM = new Random();
+
+    public TicketServiceImpl(TicketRepository ticketRepository,
+                             BookingRepository bookingRepository,
+                             UserRepository userRepository,
+                             EventRepository eventRepository,
+                             QRCodeService qrCodeService,
+                             @Lazy NotificationService notificationService) {
+        this.ticketRepository = ticketRepository;
+        this.bookingRepository = bookingRepository;
+        this.userRepository = userRepository;
+        this.eventRepository = eventRepository;
+        this.qrCodeService = qrCodeService;
+        this.notificationService = notificationService;
+    }
 
     // ── Generate Ticket ──────────────────────────────────────────────────────
 
@@ -58,8 +73,6 @@ public class TicketServiceImpl implements TicketService {
                         "Event not found: " + booking.getEventId()));
 
         String ticketCode = generateTicketCode();
-
-        // QR data encodes ticket code + booking reference + event id
         String qrData = ticketCode + "|" + booking.getBookingReference() + "|" + event.getId();
         String qrBase64 = qrCodeService.generateQRCode(qrData);
 
@@ -73,6 +86,15 @@ public class TicketServiceImpl implements TicketService {
 
         Ticket saved = ticketRepository.save(ticket);
         log.info("Ticket generated: {} for bookingId={}", ticketCode, bookingId);
+
+        // ── Notify customer: ticket issued ───────────────────────────────────
+        notificationService.createNotification(
+                customer.getId(),
+                "Ticket Issued",
+                "Your ticket " + ticketCode + " for \"" + event.getTitle() + "\" has been issued.",
+                NotificationType.TICKET_ISSUED,
+                saved.getId(),
+                "TICKET");
 
         return toResponse(saved, event);
     }
@@ -129,7 +151,6 @@ public class TicketServiceImpl implements TicketService {
         Booking booking = ticket.getBooking();
         User customer = ticket.getCustomer();
 
-        // Resolve event lazily if not passed in
         if (event == null) {
             event = eventRepository.findById(booking.getEventId()).orElse(null);
         }
