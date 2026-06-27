@@ -1,0 +1,26 @@
+import 'package:flutter/material.dart';
+
+class EventSubmissionsPage extends StatelessWidget {
+  const EventSubmissionsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0D0D1A),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0D0D1A),
+        title: const Text(
+          'Event Submissions',
+          style: TextStyle(color: Colors.white),
+        ),
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: const Center(
+        child: Text(
+          'EventSubmissionsPage — Coming Soon',
+          style: TextStyle(color: Colors.white70, fontSize: 16),
+        ),
+      ),
+    );
+  }
+}
