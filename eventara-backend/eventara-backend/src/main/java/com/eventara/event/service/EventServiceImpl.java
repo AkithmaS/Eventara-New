@@ -15,9 +15,13 @@ import com.eventara.event.entity.SeatZone;
 import com.eventara.event.repository.CategoryRepository;
 import com.eventara.event.repository.EventRepository;
 import com.eventara.event.repository.SeatZoneRepository;
+import com.eventara.notification.entity.NotificationType;
+import com.eventara.notification.service.NotificationService;
 import com.eventara.organizer.entity.Organizer;
 import com.eventara.organizer.repository.OrganizerRepository;
-import lombok.RequiredArgsConstructor;
+import com.eventara.user.entity.User;
+import com.eventara.user.repository.UserRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.stream.Stream;
 
+@Slf4j
 @Service
 public class EventServiceImpl implements EventService {
 
@@ -33,17 +38,23 @@ public class EventServiceImpl implements EventService {
     private final CategoryRepository categoryRepository;
     private final OrganizerRepository organizerRepository;
     private final BookingService bookingService;
+    private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     public EventServiceImpl(EventRepository eventRepository,
                             SeatZoneRepository seatZoneRepository,
                             CategoryRepository categoryRepository,
                             OrganizerRepository organizerRepository,
-                            @Lazy BookingService bookingService) {
+                            @Lazy BookingService bookingService,
+                            UserRepository userRepository,
+                            @Lazy NotificationService notificationService) {
         this.eventRepository = eventRepository;
         this.seatZoneRepository = seatZoneRepository;
         this.categoryRepository = categoryRepository;
         this.organizerRepository = organizerRepository;
         this.bookingService = bookingService;
+        this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     // ── Create ───────────────────────────────────────────────────────────────
@@ -112,7 +123,27 @@ public class EventServiceImpl implements EventService {
         }
 
         event.setStatus(EventStatus.SUBMITTED);
-        return toResponse(eventRepository.save(event));
+        Event saved = eventRepository.save(event);
+
+        // ── Notify admin: new event submission ───────────────────────────────
+        String organizerName = organizerRepository.findByUser_Id(organizerId)
+                .map(Organizer::getOrganizationName)
+                .orElse("An organizer");
+
+        userRepository.findAll().stream()
+                .filter(u -> u.getRole() == com.eventara.common.enums.Role.ROLE_ADMIN)
+                .map(User::getId)
+                .findFirst()
+                .ifPresent(adminId -> notificationService.createNotification(
+                        adminId,
+                        "New Event Submission",
+                        "\"" + event.getTitle() + "\" has been submitted for review by "
+                                + organizerName + ".",
+                        NotificationType.NEW_EVENT_SUBMISSION,
+                        event.getId(),
+                        "EVENT"));
+
+        return toResponse(saved);
     }
 
     // ── Cancel ───────────────────────────────────────────────────────────────

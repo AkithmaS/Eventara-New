@@ -17,8 +17,13 @@ import com.eventara.common.exception.ResourceNotFoundException;
 import com.eventara.event.entity.Event;
 import com.eventara.event.repository.EventRepository;
 import com.eventara.event.repository.SeatZoneRepository;
-import lombok.RequiredArgsConstructor;
+import com.eventara.notification.entity.NotificationType;
+import com.eventara.notification.service.NotificationService;
+import com.eventara.organizer.repository.OrganizerRepository;
+import com.eventara.user.entity.User;
+import com.eventara.user.repository.UserRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,15 +36,33 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class BookingServiceImpl implements BookingService {
 
     private final BookingRepository bookingRepository;
     private final SeatRepository seatRepository;
     private final EventRepository eventRepository;
     private final SeatZoneRepository seatZoneRepository;
+    private final UserRepository userRepository;
+    private final OrganizerRepository organizerRepository;
+    private final NotificationService notificationService;
 
     private static final Random RANDOM = new Random();
+
+    public BookingServiceImpl(BookingRepository bookingRepository,
+                              SeatRepository seatRepository,
+                              EventRepository eventRepository,
+                              SeatZoneRepository seatZoneRepository,
+                              UserRepository userRepository,
+                              OrganizerRepository organizerRepository,
+                              @Lazy NotificationService notificationService) {
+        this.bookingRepository = bookingRepository;
+        this.seatRepository = seatRepository;
+        this.eventRepository = eventRepository;
+        this.seatZoneRepository = seatZoneRepository;
+        this.userRepository = userRepository;
+        this.organizerRepository = organizerRepository;
+        this.notificationService = notificationService;
+    }
 
     // ── Lock Seats ───────────────────────────────────────────────────────────
 
@@ -101,7 +124,6 @@ public class BookingServiceImpl implements BookingService {
                     })
                     .toList();
 
-            // Calculate total from zone prices
             totalAmount = seats.stream()
                     .map(seat -> {
                         if (seat.getZoneId() != null) {
@@ -113,12 +135,10 @@ public class BookingServiceImpl implements BookingService {
                     })
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            // Build readable seat details
             seatDetails = seats.stream()
                     .map(s -> "Row " + s.getRowLabel() + " Seat " + s.getSeatNumber())
                     .collect(Collectors.joining(", "));
 
-            // Mark seats as BOOKED
             seats.forEach(s -> {
                 s.setStatus(SeatStatus.BOOKED);
                 s.setLockedByUserId(null);
@@ -128,7 +148,6 @@ public class BookingServiceImpl implements BookingService {
             quantity = seats.size();
 
         } else {
-            // GENERAL_ADMISSION
             if (request.getQuantity() == null || request.getQuantity() <= 0) {
                 throw new BadRequestException("Quantity is required for general admission events");
             }
@@ -153,7 +172,33 @@ public class BookingServiceImpl implements BookingService {
                 .bookingReference(reference)
                 .build();
 
-        return toBookingResponse(bookingRepository.save(booking), event);
+        Booking saved = bookingRepository.save(booking);
+
+        // ── Notify customer: booking confirmed ───────────────────────────────
+        notificationService.createNotification(
+                userId,
+                "Booking Confirmed",
+                "Your booking for \"" + event.getTitle() + "\" is confirmed.",
+                NotificationType.BOOKING_CONFIRMED,
+                saved.getId(),
+                "BOOKING");
+
+        // ── Notify organizer: new booking received ───────────────────────────
+        String customerName = userRepository.findById(userId)
+                .map(User::getFullName)
+                .orElse("A customer");
+
+        organizerRepository.findByUser_Id(event.getOrganizerId()).ifPresent(org ->
+                notificationService.createNotification(
+                        org.getUser().getId(),
+                        "New Booking Received",
+                        customerName + " booked " + quantity + " ticket(s) for \""
+                                + event.getTitle() + "\".",
+                        NotificationType.NEW_BOOKING_RECEIVED,
+                        saved.getId(),
+                        "BOOKING"));
+
+        return toBookingResponse(saved, event);
     }
 
     // ── Cancel Booking ───────────────────────────────────────────────────────
@@ -191,6 +236,17 @@ public class BookingServiceImpl implements BookingService {
         }
 
         Event event = eventRepository.findById(booking.getEventId()).orElse(null);
+        String eventName = event != null ? event.getTitle() : "your event";
+
+        // ── Notify customer: booking cancelled ───────────────────────────────
+        notificationService.createNotification(
+                userId,
+                "Booking Cancelled",
+                "Your booking for \"" + eventName + "\" has been cancelled.",
+                NotificationType.BOOKING_CANCELLED,
+                bookingId,
+                "BOOKING");
+
         return toBookingResponse(booking, event);
     }
 
@@ -232,15 +288,25 @@ public class BookingServiceImpl implements BookingService {
     @Transactional
     public void cancelAllBookingsForEvent(Long eventId) {
         List<Booking> bookings = bookingRepository.findByEventId(eventId);
+        Event event = eventRepository.findById(eventId).orElse(null);
+        String eventName = event != null ? event.getTitle() : "an event";
 
         bookings.forEach(b -> {
             b.setStatus(BookingStatus.CANCELLED);
             bookingRepository.save(b);
             b.setStatus(BookingStatus.REFUNDED);
             bookingRepository.save(b);
+
+            // Notify each customer their booking was cancelled due to event cancellation
+            notificationService.createNotification(
+                    b.getCustomerId(),
+                    "Booking Cancelled",
+                    "Your booking for \"" + eventName + "\" has been cancelled.",
+                    NotificationType.BOOKING_CANCELLED,
+                    b.getId(),
+                    "BOOKING");
         });
 
-        // Release all seats for the event
         List<Seat> seats = seatRepository.findByEventId(eventId);
         seats.forEach(s -> {
             s.setStatus(SeatStatus.AVAILABLE);
@@ -261,7 +327,7 @@ public class BookingServiceImpl implements BookingService {
 
     private String generateReference() {
         int year = Year.now().getValue();
-        int suffix = 10000 + RANDOM.nextInt(90000); // 5 digits: 10000–99999
+        int suffix = 10000 + RANDOM.nextInt(90000);
         return "BK-" + year + "-" + suffix;
     }
 
