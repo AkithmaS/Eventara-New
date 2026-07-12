@@ -40,6 +40,16 @@ public class JwtUtil {
         return buildToken(claims, userDetails.getUsername());
     }
 
+    /** Refresh token — longer lived, no role claim. */
+    public String generateRefreshToken(UserDetails userDetails) {
+        return Jwts.builder()
+                .subject(userDetails.getUsername())
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + expiration * 7)) // 7× access token
+                .signWith(signingKey())
+                .compact();
+    }
+
     private String buildToken(Map<String, Object> extraClaims, String subject) {
         return Jwts.builder()
                 .claims(extraClaims)
