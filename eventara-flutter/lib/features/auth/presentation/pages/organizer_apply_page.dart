@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../providers/auth_notifier.dart';
 
 // ─── Colour tokens (matching the landing page exactly) ─────────────────────
 const _bgDeep = Color(0xFF0D0B1E);
@@ -55,8 +56,70 @@ class _OrganizerApplyPageState extends ConsumerState<OrganizerApplyPage> {
     super.dispose();
   }
 
+  Future<void> _handleApply() async {
+    final fullName = _fullNameCtrl.text.trim();
+    final email = _emailCtrl.text.trim();
+    final phone = _phoneCtrl.text.trim();
+    final password = _passwordCtrl.text.trim();
+    final confirm = _confirmPasswordCtrl.text.trim();
+    final orgName = _orgNameCtrl.text.trim();
+    final eventDesc = _eventDescCtrl.text.trim();
+
+    if (fullName.isEmpty ||
+        email.isEmpty ||
+        phone.isEmpty ||
+        password.isEmpty ||
+        orgName.isEmpty ||
+        eventDesc.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill in all required fields.')),
+      );
+      return;
+    }
+    if (password != confirm) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Passwords do not match.')),
+      );
+      return;
+    }
+    await ref.read(authNotifierProvider.notifier).applyOrganizer(
+          fullName: fullName,
+          email: email,
+          password: password,
+          phoneNumber: phone,
+          businessName: orgName,
+          businessDescription: eventDesc,
+        );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final authState = ref.watch(authNotifierProvider);
+    final isLoading = authState is AuthLoading;
+
+    ref.listen<AuthState>(authNotifierProvider, (_, state) {
+      if (state is AuthOrganizerApplySuccess) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Application submitted! Our team will review and contact you via email.',
+            ),
+            backgroundColor: Color(0xFF4CAF50),
+            duration: Duration(seconds: 4),
+          ),
+        );
+        context.go('/login');
+      } else if (state is AuthError) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(state.message),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+        ref.read(authNotifierProvider.notifier).clearError();
+      }
+    });
+
     return Scaffold(
       backgroundColor: _bgDeep,
       body: SingleChildScrollView(
@@ -190,10 +253,8 @@ class _OrganizerApplyPageState extends ConsumerState<OrganizerApplyPage> {
               const SizedBox(height: 28),
               // ── Submit button ────────────────────────────────────────
               _SubmitButton(
-                label: 'Submit Application',
-                onTap: () {
-                  // TODO: Implement organizer application submission
-                },
+                label: isLoading ? 'Submitting…' : 'Submit Application',
+                onTap: isLoading ? () {} : _handleApply,
               ),
               const SizedBox(height: 16),
               // ── Info message ───────────────────────────────────────────

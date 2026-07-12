@@ -7,6 +7,7 @@ class AppRoutes {
   static const login = '/login';
   static const register = '/register';
   static const organizerApply = '/organizer-apply';
+  static const adminLogin = '/admin/login';
 
   // ── Customer ──────────────────────────────────────────────────────────────
   static const customerHome = '/customer/home';

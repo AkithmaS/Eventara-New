@@ -1,29 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:eventara/shared/widgets/brand_logo.dart';
-import '../../../../core/constants/app_constants.dart';
 import '../../../../core/router/app_routes.dart';
 import '../providers/auth_notifier.dart';
 
-// ─── Colour tokens (matching the landing page exactly) ─────────────────────
+// ── Colour tokens ────────────────────────────────────────────────────────────
 const _bgDeep = Color(0xFF0D0B1E);
 const _bgCard = Color(0xFF151228);
-const _purple = Color(0xFF7B5CF6);
-const _purpleLight = Color(0xFF9B8AFB);
+const _accent = Color(0xFF7B5CF6);
+const _accentLight = Color(0xFF9B8AFB);
 const _gradStart = Color(0xFF7B5CF6);
 const _gradEnd = Color(0xFFE07BB0);
 const _textPrimary = Color(0xFFFFFFFF);
 const _textSecondary = Color(0xFFB0A8D0);
 
-class LoginPage extends ConsumerStatefulWidget {
-  const LoginPage({super.key});
+/// Dedicated login page for ROLE_ADMIN accounts.
+/// Calls POST /api/auth/admin/login — only succeeds for admin users.
+class AdminLoginPage extends ConsumerStatefulWidget {
+  const AdminLoginPage({super.key});
 
   @override
-  ConsumerState<LoginPage> createState() => _LoginPageState();
+  ConsumerState<AdminLoginPage> createState() => _AdminLoginPageState();
 }
 
-class _LoginPageState extends ConsumerState<LoginPage> {
+class _AdminLoginPageState extends ConsumerState<AdminLoginPage> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _showPassword = false;
@@ -44,21 +44,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       );
       return;
     }
-    await ref.read(authNotifierProvider.notifier).login(
+    await ref.read(authNotifierProvider.notifier).adminLogin(
           email: email,
           password: password,
         );
-  }
-
-  void _navigateByRole(String? role) {
-    switch (role) {
-      case AppConstants.roleOrganizer:
-        context.go(AppRoutes.organizerDashboard);
-      case AppConstants.roleAdmin:
-        context.go(AppRoutes.adminDashboard);
-      default:
-        context.go(AppRoutes.customerHome);
-    }
   }
 
   @override
@@ -66,16 +55,20 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     final authState = ref.watch(authNotifierProvider);
     final isLoading = authState is AuthLoading;
 
-    // Listen for state changes to show errors or navigate.
     ref.listen<AuthState>(authNotifierProvider, (_, state) {
       if (state is AuthAuthenticated) {
-        // Admin must not reach here — guard is on the backend too,
-        // but if somehow they do, redirect to admin login.
         if (state.user.isAdmin) {
-          context.go(AppRoutes.adminLogin);
-          return;
+          context.go(AppRoutes.adminDashboard);
+        } else {
+          // Non-admin somehow got through — clear and show error.
+          ref.read(authNotifierProvider.notifier).logout();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Access denied. Admin accounts only.'),
+              backgroundColor: Colors.red.shade700,
+            ),
+          );
         }
-        _navigateByRole(state.user.role);
       } else if (state is AuthError) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -94,35 +87,58 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           height: MediaQuery.of(context).size.height,
           child: Column(
             children: [
-              // ── Back button ───────────────────────────────────────────
+              // ── Back button ────────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: MouseRegion(
-                    onEnter: (_) {},
-                    child: GestureDetector(
-                      onTap: () => context.go('/'),
-                      child: const Icon(
-                        Icons.arrow_back_rounded,
-                        color: _textPrimary,
-                        size: 24,
-                      ),
+                  child: GestureDetector(
+                    onTap: () => context.go('/landing'),
+                    child: const Icon(
+                      Icons.arrow_back_rounded,
+                      color: _textPrimary,
+                      size: 24,
                     ),
                   ),
                 ),
               ),
-              // ── Logo / Brand ───────────────────────────────────────────
-              const BrandLogo(),
+
+              // ── Shield icon ────────────────────────────────────────────
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  gradient: const LinearGradient(
+                    colors: [_gradStart, _gradEnd],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _accent.withValues(alpha: 0.45),
+                      blurRadius: 28,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.admin_panel_settings_rounded,
+                  color: Colors.white,
+                  size: 36,
+                ),
+              ),
+
               const SizedBox(height: 48),
-              // ── Heading ────────────────────────────────────────────────
+
+              // ── Form ───────────────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Welcome Back',
+                      'Admin Portal',
                       style: TextStyle(
                         color: _textPrimary,
                         fontSize: 32,
@@ -131,29 +147,29 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Login to your account',
-                      style: TextStyle(
-                        color: _textSecondary,
-                        fontSize: 16,
-                      ),
+                      'Restricted access — administrators only',
+                      style: TextStyle(color: _textSecondary, fontSize: 15),
                     ),
                     const SizedBox(height: 32),
-                    // ── Email field ────────────────────────────────────
-                    _LoginTextField(
+
+                    // Email
+                    _AdminTextField(
                       controller: _emailCtrl,
-                      label: 'Email address',
+                      label: 'Admin email',
                       icon: Icons.mail_outline_rounded,
                       keyboardType: TextInputType.emailAddress,
                     ),
                     const SizedBox(height: 16),
-                    // ── Password field ─────────────────────────────────
-                    _LoginTextField(
+
+                    // Password
+                    _AdminTextField(
                       controller: _passwordCtrl,
                       label: 'Password',
                       icon: Icons.lock_outline_rounded,
                       obscure: !_showPassword,
                       suffixIcon: GestureDetector(
-                        onTap: () => setState(() => _showPassword = !_showPassword),
+                        onTap: () =>
+                            setState(() => _showPassword = !_showPassword),
                         child: Icon(
                           _showPassword
                               ? Icons.visibility_rounded
@@ -163,83 +179,29 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 14),
-                    // ── Forgot Password link ─────────────────────────
-                    Align(
-                      alignment: Alignment.centerRight,
+                    const SizedBox(height: 32),
+
+                    // Login button
+                    _GradientButton(
+                      label: isLoading ? 'Signing in…' : 'Sign In',
+                      onTap: isLoading ? () {} : _handleLogin,
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // Link back to normal login
+                    Center(
                       child: GestureDetector(
-                        onTap: () {},
+                        onTap: () => context.go(AppRoutes.login),
                         child: const Text(
-                          'Forgot Password?',
+                          'Not an admin? Go to Login',
                           style: TextStyle(
-                            color: _purpleLight,
+                            color: _accentLight,
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 28),
-                    // ── Login button ────────────────────────────────
-                    _LoginButton(
-                      label: isLoading ? 'Logging in…' : 'Login',
-                      onTap: isLoading ? () {} : _handleLogin,
-                    ),
-                  ],
-                ),
-              ),
-              const Spacer(),
-              // ── Sign up / Organizer links ───────────────────────────
-              Padding(
-                padding: const EdgeInsets.only(bottom: 32),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text(
-                          "Don't have an account? ",
-                          style: TextStyle(
-                            color: _textSecondary,
-                            fontSize: 14,
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: () => context.go('/register'),
-                          child: const Text(
-                            'Sign Up',
-                            style: TextStyle(
-                              color: _purpleLight,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text(
-                          'Are you an organizer? ',
-                          style: TextStyle(
-                            color: _textSecondary,
-                            fontSize: 14,
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: () => context.go('/organizer-apply'),
-                          child: const Text(
-                            'Apply here',
-                            style: TextStyle(
-                              color: _purpleLight,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
                     ),
                   ],
                 ),
@@ -252,8 +214,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 }
 
-/// Reusable text field with icon support and hover animation
-class _LoginTextField extends StatefulWidget {
+// ── Reusable widgets ──────────────────────────────────────────────────────────
+
+class _AdminTextField extends StatefulWidget {
   final TextEditingController controller;
   final String label;
   final IconData icon;
@@ -261,7 +224,7 @@ class _LoginTextField extends StatefulWidget {
   final bool obscure;
   final Widget? suffixIcon;
 
-  const _LoginTextField({
+  const _AdminTextField({
     required this.controller,
     required this.label,
     required this.icon,
@@ -271,10 +234,10 @@ class _LoginTextField extends StatefulWidget {
   });
 
   @override
-  State<_LoginTextField> createState() => _LoginTextFieldState();
+  State<_AdminTextField> createState() => _AdminTextFieldState();
 }
 
-class _LoginTextFieldState extends State<_LoginTextField> {
+class _AdminTextFieldState extends State<_AdminTextField> {
   bool _focused = false;
 
   @override
@@ -289,7 +252,7 @@ class _LoginTextFieldState extends State<_LoginTextField> {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: _focused
-                ? _purple.withValues(alpha: 0.5)
+                ? const Color(0xFF7B5CF6).withValues(alpha: 0.5)
                 : Colors.white.withValues(alpha: 0.08),
             width: 1.5,
           ),
@@ -298,26 +261,21 @@ class _LoginTextFieldState extends State<_LoginTextField> {
           controller: widget.controller,
           keyboardType: widget.keyboardType,
           obscureText: widget.obscure,
-          style: const TextStyle(
-            color: _textPrimary,
-            fontSize: 16,
-          ),
+          style: const TextStyle(color: _textPrimary, fontSize: 16),
           decoration: InputDecoration(
             hintText: widget.label,
-            hintStyle: const TextStyle(
-              color: _textSecondary,
-              fontSize: 14,
-            ),
+            hintStyle:
+                const TextStyle(color: _textSecondary, fontSize: 14),
             border: InputBorder.none,
             contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 14,
-            ),
+                horizontal: 16, vertical: 14),
             prefixIcon: Padding(
               padding: const EdgeInsets.only(left: 12, right: 8),
               child: Icon(
                 widget.icon,
-                color: _focused ? _purpleLight : _textSecondary,
+                color: _focused
+                    ? const Color(0xFF9B8AFB)
+                    : _textSecondary,
                 size: 20,
               ),
             ),
@@ -334,21 +292,17 @@ class _LoginTextFieldState extends State<_LoginTextField> {
   }
 }
 
-/// Login button with hover scale animation
-class _LoginButton extends StatefulWidget {
+class _GradientButton extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
 
-  const _LoginButton({
-    required this.label,
-    required this.onTap,
-  });
+  const _GradientButton({required this.label, required this.onTap});
 
   @override
-  State<_LoginButton> createState() => _LoginButtonState();
+  State<_GradientButton> createState() => _GradientButtonState();
 }
 
-class _LoginButtonState extends State<_LoginButton> {
+class _GradientButtonState extends State<_GradientButton> {
   bool _hovered = false;
 
   @override
@@ -368,11 +322,10 @@ class _LoginButtonState extends State<_LoginButton> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
               gradient: const LinearGradient(
-                colors: [_gradStart, _gradEnd],
-              ),
+                  colors: [_gradStart, _gradEnd]),
               boxShadow: [
                 BoxShadow(
-                  color: _purple.withValues(alpha: 0.45),
+                  color: const Color(0xFF7B5CF6).withValues(alpha: 0.45),
                   blurRadius: 20,
                   offset: const Offset(0, 8),
                 ),
