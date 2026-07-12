@@ -39,6 +39,15 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success(response, "Login successful"));
     }
 
+    // POST /api/auth/admin/login
+    @PostMapping("/admin/login")
+    public ResponseEntity<ApiResponse<AuthResponse>> adminLogin(
+            @Valid @RequestBody LoginRequest request) {
+
+        AuthResponse response = authService.adminLogin(request);
+        return ResponseEntity.ok(ApiResponse.success(response, "Admin login successful"));
+    }
+
     // POST /api/auth/organizer/apply
     @PostMapping("/organizer/apply")
     public ResponseEntity<ApiResponse<Void>> applyOrganizer(

@@ -9,6 +9,8 @@ public interface AuthService {
 
     AuthResponse login(LoginRequest request);
 
+    AuthResponse adminLogin(LoginRequest request);
+
     AuthResponse registerCustomer(RegisterRequest request);
 
     void applyOrganizer(OrganizerApplicationRequest request);

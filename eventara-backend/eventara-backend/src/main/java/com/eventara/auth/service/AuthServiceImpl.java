@@ -76,6 +76,7 @@ public class AuthServiceImpl implements AuthService {
                 .token(token)
                 .tokenType("Bearer")
                 .role(user.getRole().name())
+                .email(user.getEmail())
                 .fullName(user.getFullName())
                 .userId(user.getId())
                 .build();
@@ -129,12 +130,17 @@ public class AuthServiceImpl implements AuthService {
         // No JWT returned — account is pending admin approval
     }
 
-    // ── Login ────────────────────────────────────────────────────────────────
+    // ── Login (Customer & Organizer only) ────────────────────────────────────
 
     @Override
     public AuthResponse login(LoginRequest request) {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new UnauthorizedException("Invalid email or password"));
+
+        // Admin accounts must use the dedicated admin login endpoint
+        if (user.getRole() == Role.ROLE_ADMIN) {
+            throw new UnauthorizedException("Administrators must use the Admin Login page.");
+        }
 
         if (!user.isActive()) {
             throw new UnauthorizedException("Account is not active. Please wait for approval.");
@@ -154,11 +160,48 @@ public class AuthServiceImpl implements AuthService {
 
         UserDetails userDetails = userDetailsService.loadUserByUsername(user.getEmail());
         String token = jwtUtil.generateToken(userDetails);
+        String refreshToken = jwtUtil.generateRefreshToken(userDetails);
 
         return AuthResponse.builder()
                 .token(token)
+                .refreshToken(refreshToken)
                 .tokenType("Bearer")
                 .role(user.getRole().name())
+                .email(user.getEmail())
+                .fullName(user.getFullName())
+                .userId(user.getId())
+                .build();
+    }
+
+    // ── Admin Login ──────────────────────────────────────────────────────────
+
+    @Override
+    public AuthResponse adminLogin(LoginRequest request) {
+        User user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new UnauthorizedException("Invalid email or password"));
+
+        if (user.getRole() != Role.ROLE_ADMIN) {
+            throw new UnauthorizedException("Access denied. This page is for administrators only.");
+        }
+
+        if (!user.isActive()) {
+            throw new UnauthorizedException("Admin account is not active.");
+        }
+
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new UnauthorizedException("Invalid email or password");
+        }
+
+        UserDetails userDetails = userDetailsService.loadUserByUsername(user.getEmail());
+        String token = jwtUtil.generateToken(userDetails);
+        String refreshToken = jwtUtil.generateRefreshToken(userDetails);
+
+        return AuthResponse.builder()
+                .token(token)
+                .refreshToken(refreshToken)
+                .tokenType("Bearer")
+                .role(user.getRole().name())
+                .email(user.getEmail())
                 .fullName(user.getFullName())
                 .userId(user.getId())
                 .build();
