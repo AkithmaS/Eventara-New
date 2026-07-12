@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/auth/presentation/pages/login_page.dart';
 import '../../features/auth/presentation/pages/register_page.dart';
 import '../../features/auth/presentation/pages/organizer_apply_page.dart';
+import '../../features/auth/presentation/pages/admin_login_page.dart';
+import '../../features/auth/presentation/pages/splash_page.dart';
 import '../../features/customer/presentation/pages/home_page.dart';
 import '../../features/customer/presentation/pages/all_events.dart';
 import '../../features/customer/presentation/pages/event_detail_page.dart';
@@ -39,42 +40,28 @@ import '../../features/admin/presentation/pages/event_detail_page.dart' as admin
 import '../../features/admin/presentation/pages/event_approvals_page.dart' as admin_events;
 import '../../features/landing/landing_page.dart';
 import 'app_routes.dart';
+import 'route_guards.dart';
 
 /// Set to true during UI development to bypass auth checks.
-/// Flip to false once login/JWT flow is wired up.
-const bool _bypassGuard = true;
-
-/// Reads the stored JWT role from SharedPreferences.
-Future<String?> _readRole() async {
-  final prefs = await SharedPreferences.getInstance();
-  return prefs.getString('user_role'); // stored as 'ROLE_CUSTOMER', 'ROLE_ORGANIZER', etc.
-}
+/// Set to false once login/JWT flow is wired up.
+const bool _bypassGuard = false;
 
 /// Redirect callback for customer routes.
 Future<String?> _customerGuard(GoRouterState state) async {
-  if (_bypassGuard) return null; // ← remove when auth is ready
-  final role = await _readRole();
-  if (role == null) return AppRoutes.login;
-  if (role != 'ROLE_CUSTOMER') return AppRoutes.login;
-  return null;
+  if (_bypassGuard) return null;
+  return customerGuard(state);
 }
 
 /// Redirect callback for organizer routes.
 Future<String?> _organizerGuard(GoRouterState state) async {
-  if (_bypassGuard) return null; // ← remove when auth is ready
-  final role = await _readRole();
-  if (role == null) return AppRoutes.login;
-  if (role != 'ROLE_ORGANIZER') return AppRoutes.login;
-  return null;
+  if (_bypassGuard) return null;
+  return organizerGuard(state);
 }
 
 /// Redirect callback for admin routes.
 Future<String?> _adminGuard(GoRouterState state) async {
-  if (_bypassGuard) return null; // ← remove when auth is ready
-  final role = await _readRole();
-  if (role == null) return AppRoutes.login;
-  if (role != 'ROLE_ADMIN') return AppRoutes.login;
-  return null;
+  if (_bypassGuard) return null;
+  return adminGuard(state);
 }
 
 // ── Router provider ───────────────────────────────────────────────────────────
@@ -84,9 +71,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: AppRoutes.splash,
     debugLogDiagnostics: true,
     routes: [
-      // ── Landing ─────────────────────────────────────────────────────────
+      // ── Splash (token check + redirect) ──────────────────────────────────
       GoRoute(
         path: AppRoutes.splash,
+        builder: (context, state) => const SplashPage(),
+      ),
+
+      // ── Landing (marketing page) ──────────────────────────────────────────
+      GoRoute(
+        path: '/landing',
         builder: (context, state) => const LandingPage(),
       ),
 
@@ -94,6 +87,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.login,
         builder: (context, state) => const LoginPage(),
+      ),
+      GoRoute(
+        path: AppRoutes.adminLogin,
+        builder: (context, state) => const AdminLoginPage(),
       ),
       GoRoute(
         path: AppRoutes.register,
