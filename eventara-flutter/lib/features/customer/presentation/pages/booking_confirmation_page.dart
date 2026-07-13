@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:eventara/core/router/app_routes.dart';
+import '../providers/booking_notifier.dart';
 
 // ─── Colour tokens ──────────────────────────────────────────────────────────
 const _bgDeep = Color(0xFF0D0B1E);
@@ -12,7 +14,7 @@ const _gradEnd = Color(0xFFE07BB0);
 const _textPrimary = Color(0xFFFFFFFF);
 const _textSecondary = Color(0xFFB0A8D0);
 
-class BookingConfirmationPage extends StatefulWidget {
+class BookingConfirmationPage extends ConsumerStatefulWidget {
   final String bookingRef;
   final String eventName;
   final String eventDate;
@@ -33,11 +35,11 @@ class BookingConfirmationPage extends StatefulWidget {
   });
 
   @override
-  State<BookingConfirmationPage> createState() =>
+  ConsumerState<BookingConfirmationPage> createState() =>
       _BookingConfirmationPageState();
 }
 
-class _BookingConfirmationPageState extends State<BookingConfirmationPage>
+class _BookingConfirmationPageState extends ConsumerState<BookingConfirmationPage>
     with TickerProviderStateMixin {
   late AnimationController _scaleController;
   late AnimationController _checkmarkController;
@@ -395,12 +397,23 @@ class _BookingConfirmationPageState extends State<BookingConfirmationPage>
               ),
             ),
             const SizedBox(height: 32),
-            // ── Download Ticket Button ──────────────────────────────────
+            // ── Download / Generate Ticket Button ──────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: _DownloadButton(
-                onTap: () {
-                  // TODO: Download ticket
+                onTap: () async {
+                  final bookingId = int.tryParse(widget.bookingRef) ?? 0;
+                  final ticket = await ref
+                      .read(bookingNotifierProvider.notifier)
+                      .generateTicket(bookingId);
+                  if (!mounted) return;
+                  if (ticket != null) {
+                    context.go(AppRoutes.customerMyTickets);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Failed to generate ticket.')),
+                    );
+                  }
                 },
               ),
             ),

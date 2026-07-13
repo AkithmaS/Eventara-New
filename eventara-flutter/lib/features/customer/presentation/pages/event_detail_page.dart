@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:eventara/core/router/app_routes.dart';
+import '../../data/repositories/event_repository_impl.dart';
+import '../../domain/entities/event_entity.dart';
 
 // ─── Colour tokens ──────────────────────────────────────────────────────────
 const _bgDeep = Color(0xFF0D0B1E);
@@ -13,13 +16,74 @@ const _textPrimary = Color(0xFFFFFFFF);
 const _textSecondary = Color(0xFFB0A8D0);
 const _accentPink = Color(0xFFFF006E);
 
+// ─── Provider ────────────────────────────────────────────────────────────────
+
+final _eventDetailProvider =
+    FutureProvider.family<EventEntity, int>((ref, id) async {
+  final repo = EventRepositoryImpl();
+  return repo.getEventById(id);
+});
+
+/// Returns the local asset path for a given event title.
+/// First tries title-based matching, then falls back to category.
+String? _assetForEvent(String title, String categoryName) {
+  final lower = title.toLowerCase();
+  
+  // Title-based matching (highest priority)
+  if (lower.contains('stand-up') || lower.contains('standup')) {
+    return 'assets/images/comedy.jpg';
+  }
+  if (lower.contains('swan lake')) {
+    return 'assets/images/ballet.jpg';
+  }
+  if (lower.contains('cricket')) {
+    return 'assets/images/cricket.jpg';
+  }
+  if (lower.contains('esport') || lower.contains('gaming')) {
+    return 'assets/images/esport.jpg';
+  }
+  
+  // Fall back to category matching
+  return categoryAssetFor(categoryName);
+}
+
+/// Returns the local asset path for a given category name.
+/// Falls back to null when no match found (caller shows emoji/icon instead).
+String? categoryAssetFor(String categoryName) {
+  final lower = categoryName.toLowerCase();
+  if (lower.contains('music') || lower.contains('concert')) {
+    return 'assets/images/concert.jpg';
+  }
+  if (lower.contains('sport') || lower.contains('cricket')) {
+    return 'assets/images/sports.jpg';
+  }
+  if (lower.contains('theatre') || lower.contains('ballet') || lower.contains('performing')) {
+    return 'assets/images/ballet.jpg';
+  }
+  if (lower.contains('comedy')) {
+    return 'assets/images/comedy.jpg';
+  }
+  if (lower.contains('conference') || lower.contains('seminar')) {
+    return 'assets/images/conference.jpg';
+  }
+  if (lower.contains('workshop')) {
+    return 'assets/images/workshop.jpg';
+  }
+  if (lower.contains('esport') || lower.contains('gaming') || lower.contains('film') || lower.contains('cinema')) {
+    return 'assets/images/esport.jpg';
+  }
+  if (lower.contains('cultural') || lower.contains('wellness') || lower.contains('health')) {
+    return 'assets/images/wellness.jpg';
+  }
+  if (lower.contains('family') || lower.contains('kids')) {
+    return 'assets/images/music.jpg';
+  }
+  return null;
+}
+
 class EventDetailPage extends ConsumerStatefulWidget {
   final String eventId;
-
-  const EventDetailPage({
-    super.key,
-    required this.eventId,
-  });
+  const EventDetailPage({super.key, required this.eventId});
 
   @override
   ConsumerState<EventDetailPage> createState() => _EventDetailPageState();
@@ -31,362 +95,146 @@ class _EventDetailPageState extends ConsumerState<EventDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final id = int.tryParse(widget.eventId) ?? 0;
+    final asyncEvent = ref.watch(_eventDetailProvider(id));
+
+    return asyncEvent.when(
+      loading: () => const Scaffold(
+        backgroundColor: _bgDeep,
+        body: Center(child: CircularProgressIndicator(color: _purpleLight)),
+      ),
+      error: (e, _) => Scaffold(
+        backgroundColor: _bgDeep,
+        appBar: AppBar(
+          backgroundColor: _bgDeep,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded, color: _textPrimary),
+            onPressed: () => context.pop(),
+          ),
+        ),
+        body: Center(
+          child: Text(e.toString(),
+              style: const TextStyle(color: _textSecondary, fontSize: 14)),
+        ),
+      ),
+      data: (event) => _buildPage(context, event),
+    );
+  }
+
+  Widget _buildPage(BuildContext context, EventEntity event) {
     return Scaffold(
       backgroundColor: _bgDeep,
       body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Hero Image with Back & Like buttons ────────────────────
+            // ── Hero ──────────────────────────────────────────────────────
             Stack(
               children: [
-                // Event image placeholder with gradient overlay
-                Container(
+                SizedBox(
                   height: 320,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        _gradStart.withValues(alpha: 0.4),
-                        _gradEnd.withValues(alpha: 0.3),
-                        _bgDeep,
-                      ],
-                    ),
-                  ),
-                  child: Center(
-                    child: Icon(
-                      Icons.music_note_rounded,
-                      size: 80,
-                      color: _purple.withValues(alpha: 0.3),
-                    ),
+                  width: double.infinity,
+                  child: _EventHeroImage(
+                    event: event,
                   ),
                 ),
-                // Back button
                 Positioned(
-                  top: 20,
-                  left: 16,
+                  top: 20, left: 16,
                   child: GestureDetector(
-                    onTap: () => context.pop(),
+                    onTap: () {
+                      if (context.canPop()) {
+                        context.pop();
+                      } else {
+                        context.go(AppRoutes.customerHome);
+                      }
+                    },
                     child: Container(
-                      width: 44,
-                      height: 44,
+                      width: 44, height: 44,
                       decoration: BoxDecoration(
                         color: _bgDeep.withValues(alpha: 0.7),
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          width: 1.5,
-                        ),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.2), width: 1.5),
                       ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.arrow_back_rounded,
-                          color: _textPrimary,
-                          size: 22,
-                        ),
-                      ),
+                      child: const Icon(Icons.arrow_back_rounded, color: _textPrimary, size: 22),
                     ),
                   ),
                 ),
-                // Like button
                 Positioned(
-                  top: 20,
-                  right: 16,
+                  top: 20, right: 16,
                   child: GestureDetector(
                     onTap: () => setState(() => _liked = !_liked),
                     child: Container(
-                      width: 44,
-                      height: 44,
+                      width: 44, height: 44,
                       decoration: BoxDecoration(
                         color: _bgDeep.withValues(alpha: 0.7),
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          width: 1.5,
-                        ),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.2), width: 1.5),
                       ),
-                      child: Center(
-                        child: Icon(
-                          _liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                          color: _liked ? _accentPink : _textPrimary,
-                          size: 22,
-                        ),
+                      child: Icon(
+                        _liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                        color: _liked ? _accentPink : _textPrimary, size: 22,
                       ),
                     ),
                   ),
                 ),
               ],
             ),
-            // ── Event Details ───────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Category badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _purple.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: _purple.withValues(alpha: 0.4),
-                        width: 1,
+                  // Category + type badge row
+                  Row(
+                    children: [
+                      _badge(event.categoryName, _purple, _purpleLight),
+                      const SizedBox(width: 8),
+                      _badge(
+                        event.isSeated ? 'SEATED' : 'GENERAL ADMISSION',
+                        event.isSeated
+                            ? const Color(0xFF00BCD4)
+                            : const Color(0xFF4CAF50),
+                        Colors.white,
                       ),
-                    ),
-                    child: const Text(
-                      'Music',
-                      style: TextStyle(
-                        color: _purpleLight,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
+                    ],
                   ),
                   const SizedBox(height: 12),
-                  // Event title
-                  const Text(
-                    'Neon Jungle Festival',
-                    style: TextStyle(
-                      color: _textPrimary,
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      height: 1.2,
-                    ),
-                  ),
+                  Text(event.title,
+                      style: const TextStyle(
+                          color: _textPrimary, fontSize: 28,
+                          fontWeight: FontWeight.w800, height: 1.2)),
                   const SizedBox(height: 20),
-                  // Date and Time
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.calendar_today_rounded,
-                        color: _textSecondary,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Saturday, 28 June 2026',
-                            style: TextStyle(
-                              color: _textPrimary,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '7:00 PM — 4:00 AM',
-                            style: TextStyle(
-                              color: _textSecondary.withValues(alpha: 0.8),
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                  _infoRow(Icons.calendar_today_rounded, event.eventDate, ''),
                   const SizedBox(height: 16),
-                  // Location
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.location_on_rounded,
-                        color: _textSecondary,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Electric Gardens',
-                            style: TextStyle(
-                              color: _textPrimary,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Los Angeles, CA',
-                            style: TextStyle(
-                              color: _textSecondary.withValues(alpha: 0.8),
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                  _infoRow(Icons.location_on_rounded, event.venueName, event.venueAddress),
                   const SizedBox(height: 16),
-                  // Organizer
-                  Row(
-                    children: [
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _purple.withValues(alpha: 0.3),
-                        ),
-                        child: const Center(
-                          child: Icon(
-                            Icons.person_rounded,
-                            color: _purpleLight,
-                            size: 16,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'By Global Events Co.',
-                            style: TextStyle(
-                              color: _textPrimary,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Official Promoter',
-                            style: TextStyle(
-                              color: _textSecondary.withValues(alpha: 0.8),
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                  _infoRow(Icons.person_rounded, 'By ${event.organizerName}', 'Organizer'),
+                  const SizedBox(height: 16),
+                  _infoRow(
+                    Icons.event_seat_rounded,
+                    '${event.availableCapacity} / ${event.totalCapacity} available',
+                    'Capacity',
                   ),
                   const SizedBox(height: 32),
-                  // About this Event
-                  const Text(
-                    'About this Event',
-                    style: TextStyle(
-                      color: _textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                  const Text('About this Event',
+                      style: TextStyle(color: _textPrimary, fontSize: 18, fontWeight: FontWeight.w700)),
                   const SizedBox(height: 12),
                   Text(
-                    _expandedDescription
-                        ? 'Step into a world where lush tropical flora meets futuristic cybernetic light shows. Neon Jungle Festival returns for its fifth anniversary, featuring a world-class lineup of electronic, house, and techno artists. Experience immersive installations, interactive art zones, and cutting-edge sound systems across three stages. Perfect for festival veterans and newcomers alike.'
-                        : 'Step into a world where lush tropical flora meets futuristic cybernetic light shows. Neon Jungle Festival returns for its fifth anniversary, featuring a world-class lineup...',
-                    style: TextStyle(
-                      color: _textSecondary.withValues(alpha: 0.9),
-                      fontSize: 14,
-                      height: 1.6,
-                    ),
+                    _expandedDescription || event.description.length <= 160
+                        ? event.description
+                        : '${event.description.substring(0, 160)}...',
+                    style: TextStyle(color: _textSecondary.withValues(alpha: 0.9), fontSize: 14, height: 1.6),
                   ),
-                  const SizedBox(height: 8),
-                  GestureDetector(
-                    onTap: () => setState(() => _expandedDescription = !_expandedDescription),
-                    child: Text(
-                      _expandedDescription ? 'Read less' : 'Read more',
-                      style: const TextStyle(
-                        color: _purpleLight,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
+                  if (event.description.length > 160) ...[
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: () => setState(() => _expandedDescription = !_expandedDescription),
+                      child: Text(
+                        _expandedDescription ? 'Read less' : 'Read more',
+                        style: const TextStyle(color: _purpleLight, fontSize: 14, fontWeight: FontWeight.w600),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 32),
-                  // Ticket Types
-                  const Text(
-                    'Available Tickets',
-                    style: TextStyle(
-                      color: _textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  // Ticket card
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                    decoration: BoxDecoration(
-                      color: _bgCard,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.08),
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Text(
-                                  '🎫',
-                                  style: TextStyle(fontSize: 18),
-                                ),
-                                const SizedBox(width: 8),
-                                const Text(
-                                  'General Admission',
-                                  style: TextStyle(
-                                    color: _textPrimary,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Limited spots available',
-                              style: TextStyle(
-                                color: _textSecondary.withValues(alpha: 0.7),
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                        // Availability dots
-                        Row(
-                          children: [
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: _purple.withValues(alpha: 0.6),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: _purple.withValues(alpha: 0.6),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: _purple.withValues(alpha: 0.3),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
+                  ],
                   const SizedBox(height: 40),
                 ],
               ),
@@ -394,16 +242,10 @@ class _EventDetailPageState extends ConsumerState<EventDetailPage> {
           ],
         ),
       ),
-      // ── Bottom Action Bar ────────────────────────────────────────────
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: _bgCard,
-          border: Border(
-            top: BorderSide(
-              color: Colors.white.withValues(alpha: 0.08),
-              width: 1,
-            ),
-          ),
+          border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 1)),
         ),
         child: SafeArea(
           child: Padding(
@@ -415,30 +257,23 @@ class _EventDetailPageState extends ConsumerState<EventDetailPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      'STARTING FROM',
-                      style: TextStyle(
-                        color: _textSecondary.withValues(alpha: 0.6),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
+                    Text('STARTING FROM',
+                        style: TextStyle(
+                            color: _textSecondary.withValues(alpha: 0.6),
+                            fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
                     const SizedBox(height: 4),
-                    const Text(
-                      'LKR 129.00',
-                      style: TextStyle(
-                        color: _textPrimary,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                    Text('LKR ${event.ticketPrice.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                            color: _textPrimary, fontSize: 20, fontWeight: FontWeight.w800)),
                   ],
                 ),
-                // Book Now button
                 _BookNowButton(
                   onTap: () {
-                    // TODO: Navigate to seat map or booking page
+                    if (event.isSeated) {
+                      context.go(AppRoutes.buildCustomerSeatMap(widget.eventId));
+                    } else {
+                      context.go(AppRoutes.buildCustomerPayment(widget.eventId));
+                    }
                   },
                 ),
               ],
@@ -448,12 +283,156 @@ class _EventDetailPageState extends ConsumerState<EventDetailPage> {
       ),
     );
   }
+
+  Widget _badge(String label, Color bg, Color fg) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: bg.withValues(alpha: 0.4), width: 1),
+      ),
+      child: Text(label,
+          style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String title, String subtitle) {
+    return Row(
+      children: [
+        Icon(icon, color: _textSecondary, size: 18),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title,
+                style: const TextStyle(color: _textPrimary, fontSize: 15, fontWeight: FontWeight.w600)),
+            if (subtitle.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(subtitle,
+                  style: TextStyle(color: _textSecondary.withValues(alpha: 0.8), fontSize: 13)),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
 }
 
-/// Book Now button with gradient and hover animation
+class _EventHeroImage extends StatelessWidget {
+  final EventEntity event;
+  const _EventHeroImage({required this.event});
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = _assetForEvent(event.title, event.categoryName);
+
+    // Try network image first if available
+    if (event.imageUrl != null && event.imageUrl!.isNotEmpty) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.network(
+            event.imageUrl!,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _buildFallback(asset),
+          ),
+          _buildGradientOverlay(),
+        ],
+      );
+    }
+
+    // Try local asset
+    if (asset != null) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            asset,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _buildEmojiFallback(event.categoryName),
+          ),
+          _buildGradientOverlay(),
+        ],
+      );
+    }
+
+    // Fallback to gradient + emoji
+    return _buildEmojiFallback(event.categoryName);
+  }
+
+  Widget _buildFallback(String? asset) {
+    if (asset != null) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            asset,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _buildEmojiFallback(event.categoryName),
+          ),
+          _buildGradientOverlay(),
+        ],
+      );
+    }
+    return _buildEmojiFallback(event.categoryName);
+  }
+
+  Widget _buildGradientOverlay() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.transparent,
+            _bgDeep.withValues(alpha: 0.6),
+            _bgDeep,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmojiFallback(String categoryName) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            _gradStart.withValues(alpha: 0.8),
+            _gradEnd.withValues(alpha: 0.6),
+          ],
+        ),
+      ),
+      child: Center(
+        child: Text(
+          _emojiFor(categoryName),
+          style: const TextStyle(fontSize: 80),
+        ),
+      ),
+    );
+  }
+
+  String _emojiFor(String cat) {
+    final lower = cat.toLowerCase();
+    if (lower.contains('music') || lower.contains('concert')) return '🎵';
+    if (lower.contains('sport') || lower.contains('cricket')) return '⚽';
+    if (lower.contains('theatre') || lower.contains('ballet')) return '🎭';
+    if (lower.contains('comedy')) return '😂';
+    if (lower.contains('conference') || lower.contains('seminar')) return '🎤';
+    if (lower.contains('workshop')) return '🛠️';
+    if (lower.contains('film') || lower.contains('cinema')) return '🎬';
+    if (lower.contains('cultural')) return '🎨';
+    if (lower.contains('family') || lower.contains('kids')) return '👨‍👩‍👧';
+    if (lower.contains('esport') || lower.contains('gaming')) return '🎮';
+    return '📌';
+  }
+}
+
 class _BookNowButton extends StatefulWidget {
   final VoidCallback onTap;
-
   const _BookNowButton({required this.onTap});
 
   @override
@@ -478,26 +457,11 @@ class _BookNowButtonState extends State<_BookNowButton> {
             padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              gradient: const LinearGradient(
-                colors: [_gradStart, _gradEnd],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: _purple.withValues(alpha: 0.5),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
+              gradient: const LinearGradient(colors: [_gradStart, _gradEnd]),
+              boxShadow: [BoxShadow(color: _purple.withValues(alpha: 0.5), blurRadius: 16, offset: const Offset(0, 6))],
             ),
-            child: const Text(
-              'Book Now',
-              style: TextStyle(
-                color: _textPrimary,
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.3,
-              ),
-            ),
+            child: const Text('Book Now',
+                style: TextStyle(color: _textPrimary, fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
           ),
         ),
       ),
