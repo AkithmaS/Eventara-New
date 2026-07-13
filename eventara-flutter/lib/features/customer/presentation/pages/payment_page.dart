@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:eventara/core/router/app_routes.dart';
+import '../../data/repositories/event_repository_impl.dart';
+import '../../domain/entities/event_entity.dart';
+import '../providers/booking_notifier.dart';
 
 // ─── Colour tokens ──────────────────────────────────────────────────────────
 const _bgDeep = Color(0xFF0D0B1E);
@@ -12,7 +18,15 @@ const _textPrimary = Color(0xFFFFFFFF);
 const _textSecondary = Color(0xFFB0A8D0);
 const _accentOrange = Color(0xFFD97744);
 
-class PaymentPage extends StatefulWidget {
+// ─── Provider for event detail ────────────────────────────────────────────
+
+final _paymentEventProvider =
+    FutureProvider.family<EventEntity, int>((ref, id) async {
+  final repo = EventRepositoryImpl();
+  return repo.getEventById(id);
+});
+
+class PaymentPage extends ConsumerStatefulWidget {
   final String eventId;
 
   const PaymentPage({
@@ -21,16 +35,14 @@ class PaymentPage extends StatefulWidget {
   });
 
   @override
-  State<PaymentPage> createState() => _PaymentPageState();
+  ConsumerState<PaymentPage> createState() => _PaymentPageState();
 }
 
-class _PaymentPageState extends State<PaymentPage> {
+class _PaymentPageState extends ConsumerState<PaymentPage> {
   late Timer _countdownTimer;
   int _remainingSeconds = 268; // 4:28 in seconds
-  String _selectedPaymentMethod = 'card';
-  bool _showCardDetails = false;
+  int _quantity = 1;
 
-  final TextEditingController _promoCodeController = TextEditingController();
   final TextEditingController _cardNumberController = TextEditingController();
   final TextEditingController _expiryController = TextEditingController();
   final TextEditingController _cardholderController = TextEditingController();
@@ -63,7 +75,6 @@ class _PaymentPageState extends State<PaymentPage> {
   @override
   void dispose() {
     _countdownTimer.cancel();
-    _promoCodeController.dispose();
     _cardNumberController.dispose();
     _expiryController.dispose();
     _cardholderController.dispose();
@@ -73,6 +84,86 @@ class _PaymentPageState extends State<PaymentPage> {
 
   @override
   Widget build(BuildContext context) {
+    final id = int.tryParse(widget.eventId) ?? 0;
+    final asyncEvent = ref.watch(_paymentEventProvider(id));
+
+    return asyncEvent.when(
+      loading: () => Scaffold(
+        backgroundColor: _bgDeep,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(color: _purpleLight),
+              const SizedBox(height: 16),
+              Text(
+                'Loading payment details...',
+                style: TextStyle(color: _textSecondary),
+              ),
+            ],
+          ),
+        ),
+      ),
+      error: (e, _) => Scaffold(
+        backgroundColor: _bgDeep,
+        appBar: AppBar(
+          backgroundColor: _bgDeep,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded, color: _textPrimary),
+            onPressed: () => context.pop(),
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.error_outline_rounded,
+                  size: 48,
+                  color: _accentOrange,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Unable to load event',
+                  style: TextStyle(
+                    color: _textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  e.toString(),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _textSecondary,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => ref.refresh(_paymentEventProvider(id)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _purple,
+                  ),
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      data: (event) => _buildPaymentPage(context, event),
+    );
+  }
+
+  Widget _buildPaymentPage(BuildContext context, EventEntity event) {
+    final subtotal = event.ticketPrice * _quantity;
+    final serviceFee = subtotal * 0.05; // 5% service fee
+    final total = subtotal + serviceFee;
+    
     return Scaffold(
       backgroundColor: _bgDeep,
       body: SingleChildScrollView(
@@ -86,7 +177,10 @@ class _PaymentPageState extends State<PaymentPage> {
                 child: Row(
                   children: [
                     GestureDetector(
-                      onTap: () => Navigator.pop(context),
+                      onTap: () {
+                        final eventId = widget.eventId;
+                        context.go(AppRoutes.buildCustomerEventDetail(eventId));
+                      },
                       child: Container(
                         width: 44,
                         height: 44,
@@ -120,75 +214,52 @@ class _PaymentPageState extends State<PaymentPage> {
               ),
             ),
             const SizedBox(height: 16),
-            // ── Countdown Timer ─────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: _accentOrange.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: _accentOrange.withValues(alpha: 0.3),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.timer_outlined,
-                      color: _accentOrange,
-                      size: 18,
+            // ── Countdown Timer (only for seated events) ────────────────
+            if (event.isSeated)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: _accentOrange.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _accentOrange.withValues(alpha: 0.3),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Seats reserved for ${_formatTime(_remainingSeconds)}',
-                        style: const TextStyle(
-                          color: _textPrimary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.timer_outlined,
+                        color: _accentOrange,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Seats reserved for ${_formatTime(_remainingSeconds)}',
+                          style: const TextStyle(
+                            color: _textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            // ── Event Header Image ──────────────────────────────────────
-            Container(
-              height: 180,
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    _purple.withValues(alpha: 0.3),
-                    _bgDeep,
-                  ],
-                ),
-              ),
-              child: Center(
-                child: Icon(
-                  Icons.music_note_rounded,
-                  size: 80,
-                  color: _purple.withValues(alpha: 0.3),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
+            if (event.isSeated) const SizedBox(height: 24),
             // ── Order Summary ───────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Neon Jungle Festival',
-                    style: TextStyle(
+                  Text(
+                    event.title,
+                    style: const TextStyle(
                       color: _textPrimary,
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
@@ -203,9 +274,9 @@ class _PaymentPageState extends State<PaymentPage> {
                         size: 14,
                       ),
                       const SizedBox(width: 6),
-                      const Text(
-                        'June 28, 2026 • 8:00 PM',
-                        style: TextStyle(
+                      Text(
+                        event.eventDate,
+                        style: const TextStyle(
                           color: _textSecondary,
                           fontSize: 12,
                         ),
@@ -214,158 +285,25 @@ class _PaymentPageState extends State<PaymentPage> {
                   ),
                   const SizedBox(height: 16),
                   // Event details table
-                  _DetailRow(label: 'Venue', value: 'Electric Gardens'),
+                  _DetailRow(label: 'Venue', value: event.venueName),
                   const SizedBox(height: 12),
-                  _DetailRow(label: 'Seats', value: 'Row B • Seat 12, 13'),
-                  const SizedBox(height: 12),
-                  _DetailRow(label: 'Quantity', value: '2 Tickets'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            // ── Promo Code Section ──────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'PROMO CODE',
-                    style: TextStyle(
-                      color: _textSecondary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _promoCodeController,
-                          style: const TextStyle(
-                            color: _textPrimary,
-                            fontSize: 14,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: 'Enter code',
-                            hintStyle: TextStyle(
-                              color: _textSecondary.withValues(alpha: 0.5),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
-                            ),
-                            filled: true,
-                            fillColor: _bgCard,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: Colors.white.withValues(alpha: 0.1),
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                color: Colors.white.withValues(alpha: 0.1),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(
-                                color: _purple,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _purple,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Text(
-                          'Apply',
-                          style: TextStyle(
-                            color: _textPrimary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                  if (event.isSeated)
+                    _DetailRow(label: 'Seats', value: 'Row B • Seat 12, 13'),
+                  if (event.isSeated) const SizedBox(height: 12),
+                  _DetailRow(label: 'Quantity', value: '$_quantity Ticket${_quantity > 1 ? 's' : ''}'),
                 ],
               ),
             ),
             const SizedBox(height: 32),
-            // ── Payment Method Section ───────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'PAYMENT METHOD',
-                    style: TextStyle(
-                      color: _textSecondary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _PaymentMethodButton(
-                        icon: Icons.credit_card_rounded,
-                        label: 'Card',
-                        isSelected: _selectedPaymentMethod == 'card',
-                        onTap: () => setState(() {
-                          _selectedPaymentMethod = 'card';
-                          _showCardDetails = true;
-                        }),
-                      ),
-                      _PaymentMethodButton(
-                        icon: Icons.account_balance_rounded,
-                        label: 'Bank',
-                        isSelected: _selectedPaymentMethod == 'bank',
-                        onTap: () => setState(() {
-                          _selectedPaymentMethod = 'bank';
-                          _showCardDetails = false;
-                        }),
-                      ),
-                      _PaymentMethodButton(
-                        icon: Icons.more_horiz_rounded,
-                        label: 'Other',
-                        isSelected: _selectedPaymentMethod == 'other',
-                        onTap: () => setState(() {
-                          _selectedPaymentMethod = 'other';
-                          _showCardDetails = false;
-                        }),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            // ── Card Details (shown only when card is selected) ─────────
-            if (_showCardDetails) ...[
+            // ── Quantity Selector (for general admission) ────────────────
+            if (!event.isSeated)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'CARD NUMBER',
+                      'QUANTITY',
                       style: TextStyle(
                         color: _textSecondary,
                         fontSize: 11,
@@ -373,213 +311,44 @@ class _PaymentPageState extends State<PaymentPage> {
                         letterSpacing: 0.8,
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _cardNumberController,
-                      style: const TextStyle(
-                        color: _textPrimary,
-                        fontSize: 14,
-                        letterSpacing: 2,
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: _bgCard,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
                       ),
-                      decoration: InputDecoration(
-                        hintText: '•••• •••• •••• 4242',
-                        hintStyle: TextStyle(
-                          color: _textSecondary.withValues(alpha: 0.5),
-                        ),
-                        suffixIcon: Icon(
-                          Icons.edit_rounded,
-                          color: _textSecondary.withValues(alpha: 0.5),
-                          size: 18,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        filled: true,
-                        fillColor: _bgCard,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(
-                            color: Colors.white.withValues(alpha: 0.1),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.remove_rounded, color: _textPrimary),
+                            onPressed: _quantity > 1
+                                ? () => setState(() => _quantity--)
+                                : null,
                           ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(
-                            color: Colors.white.withValues(alpha: 0.1),
+                          Text(
+                            _quantity.toString(),
+                            style: const TextStyle(
+                              color: _textPrimary,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
+                          IconButton(
+                            icon: const Icon(Icons.add_rounded, color: _textPrimary),
+                            onPressed: _quantity < event.availableCapacity
+                                ? () => setState(() => _quantity++)
+                                : null,
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'EXPIRY',
-                                style: TextStyle(
-                                  color: _textSecondary,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.8,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              TextField(
-                                controller: _expiryController,
-                                style: const TextStyle(
-                                  color: _textPrimary,
-                                  fontSize: 14,
-                                ),
-                                decoration: InputDecoration(
-                                  hintText: '12/26',
-                                  hintStyle: TextStyle(
-                                    color: _textSecondary.withValues(alpha: 0.5),
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 10,
-                                  ),
-                                  filled: true,
-                                  fillColor: _bgCard,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(
-                                      color: Colors.white.withValues(alpha: 0.1),
-                                    ),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(
-                                      color: Colors.white.withValues(alpha: 0.1),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'CVV',
-                                style: TextStyle(
-                                  color: _textSecondary,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.8,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              TextField(
-                                controller: _cvvController,
-                                obscureText: true,
-                                style: const TextStyle(
-                                  color: _textPrimary,
-                                  fontSize: 14,
-                                  letterSpacing: 1,
-                                ),
-                                decoration: InputDecoration(
-                                  hintText: '•••',
-                                  hintStyle: TextStyle(
-                                    color: _textSecondary.withValues(alpha: 0.5),
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 10,
-                                  ),
-                                  filled: true,
-                                  fillColor: _bgCard,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(
-                                      color: Colors.white.withValues(alpha: 0.1),
-                                    ),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(
-                                      color: Colors.white.withValues(alpha: 0.1),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'CARDHOLDER NAME',
-                      style: TextStyle(
-                        color: _textSecondary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _cardholderController,
-                      style: const TextStyle(
-                        color: _textPrimary,
-                        fontSize: 14,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'Alex Johnson',
-                        hintStyle: TextStyle(
-                          color: _textSecondary.withValues(alpha: 0.5),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        filled: true,
-                        fillColor: _bgCard,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(
-                            color: Colors.white.withValues(alpha: 0.1),
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(
-                            color: Colors.white.withValues(alpha: 0.1),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.info_outline_rounded,
-                          color: _textSecondary,
-                          size: 14,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'This is a simulated payment',
-                          style: TextStyle(
-                            color: _textSecondary.withValues(alpha: 0.7),
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
                     ),
                     const SizedBox(height: 24),
                   ],
                 ),
               ),
-            ],
             // ── Price Summary ────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -587,8 +356,8 @@ class _PaymentPageState extends State<PaymentPage> {
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
-                      Text(
+                    children: [
+                      const Text(
                         'Subtotal',
                         style: TextStyle(
                           color: _textSecondary,
@@ -596,8 +365,8 @@ class _PaymentPageState extends State<PaymentPage> {
                         ),
                       ),
                       Text(
-                        'LKR 300.00',
-                        style: TextStyle(
+                        'LKR ${subtotal.toStringAsFixed(2)}',
+                        style: const TextStyle(
                           color: _textPrimary,
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -608,8 +377,8 @@ class _PaymentPageState extends State<PaymentPage> {
                   const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
-                      Text(
+                    children: [
+                      const Text(
                         'Service Fee',
                         style: TextStyle(
                           color: _textSecondary,
@@ -617,8 +386,8 @@ class _PaymentPageState extends State<PaymentPage> {
                         ),
                       ),
                       Text(
-                        'LKR 15.00',
-                        style: TextStyle(
+                        'LKR ${serviceFee.toStringAsFixed(2)}',
+                        style: const TextStyle(
                           color: _textPrimary,
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -631,8 +400,8 @@ class _PaymentPageState extends State<PaymentPage> {
                   const SizedBox(height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
-                      Text(
+                    children: [
+                      const Text(
                         'Total',
                         style: TextStyle(
                           color: _textPrimary,
@@ -641,8 +410,8 @@ class _PaymentPageState extends State<PaymentPage> {
                         ),
                       ),
                       Text(
-                        'LKR 315.00',
-                        style: TextStyle(
+                        'LKR ${total.toStringAsFixed(2)}',
+                        style: const TextStyle(
                           color: _textPrimary,
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
@@ -650,6 +419,238 @@ class _PaymentPageState extends State<PaymentPage> {
                       ),
                     ],
                   ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 32),
+            // ── Card Details (always shown) ─────────────────────────────
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'CARD DETAILS',
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'CARD NUMBER',
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _cardNumberController,
+                    style: const TextStyle(
+                      color: _textPrimary,
+                      fontSize: 14,
+                      letterSpacing: 2,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: '•••• •••• •••• 4242',
+                      hintStyle: TextStyle(
+                        color: _textSecondary.withValues(alpha: 0.5),
+                      ),
+                      suffixIcon: Icon(
+                        Icons.edit_rounded,
+                        color: _textSecondary.withValues(alpha: 0.5),
+                        size: 18,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      filled: true,
+                      fillColor: _bgCard,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.1),
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.1),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'EXPIRY',
+                              style: TextStyle(
+                                color: _textSecondary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _expiryController,
+                              style: const TextStyle(
+                                color: _textPrimary,
+                                fontSize: 14,
+                              ),
+                              decoration: InputDecoration(
+                                hintText: '12/26',
+                                hintStyle: TextStyle(
+                                  color: _textSecondary.withValues(alpha: 0.5),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                filled: true,
+                                fillColor: _bgCard,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                    color: Colors.white.withValues(alpha: 0.1),
+                                  ),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                    color: Colors.white.withValues(alpha: 0.1),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'CVV',
+                              style: TextStyle(
+                                color: _textSecondary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _cvvController,
+                              obscureText: true,
+                              style: const TextStyle(
+                                color: _textPrimary,
+                                fontSize: 14,
+                                letterSpacing: 1,
+                              ),
+                              decoration: InputDecoration(
+                                hintText: '•••',
+                                hintStyle: TextStyle(
+                                  color: _textSecondary.withValues(alpha: 0.5),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                filled: true,
+                                fillColor: _bgCard,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                    color: Colors.white.withValues(alpha: 0.1),
+                                  ),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                    color: Colors.white.withValues(alpha: 0.1),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'CARDHOLDER NAME',
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _cardholderController,
+                    style: const TextStyle(
+                      color: _textPrimary,
+                      fontSize: 14,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'Alex Johnson',
+                      hintStyle: TextStyle(
+                        color: _textSecondary.withValues(alpha: 0.5),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      filled: true,
+                      fillColor: _bgCard,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.1),
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.1),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        color: _textSecondary,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'This is a simulated payment',
+                        style: TextStyle(
+                          color: _textSecondary.withValues(alpha: 0.7),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
@@ -687,9 +688,9 @@ class _PaymentPageState extends State<PaymentPage> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    const Text(
-                      'LKR 315.00',
-                      style: TextStyle(
+                    Text(
+                      'LKR ${total.toStringAsFixed(2)}',
+                      style: const TextStyle(
                         color: _textPrimary,
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
@@ -698,8 +699,29 @@ class _PaymentPageState extends State<PaymentPage> {
                   ],
                 ),
                 _PayNowButton(
-                  onTap: () {
-                    // TODO: Process payment
+                  onTap: () async {
+                    final eventId = int.tryParse(widget.eventId) ?? 0;
+                    final booking = await ref
+                        .read(bookingNotifierProvider.notifier)
+                        .createBooking(eventId: eventId, quantity: _quantity);
+                    if (!mounted) return;
+                    if (booking != null) {
+                      context.go(
+                        AppRoutes.buildCustomerBookingConfirmation(
+                          booking.id.toString(),
+                          eventName: booking.eventName,
+                          eventDate: event.eventDate,
+                          venue: event.venueName,
+                          holderName: booking.customerName,
+                          seatsCount: booking.quantity.toString(),
+                          totalPrice: booking.totalAmount.toStringAsFixed(2),
+                        ),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Booking failed. Please try again.')),
+                      );
+                    }
                   },
                 ),
               ],
@@ -742,64 +764,6 @@ class _DetailRow extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// Payment method selection button
-class _PaymentMethodButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _PaymentMethodButton({
-    required this.icon,
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isSelected
-                  ? _purple.withValues(alpha: 0.3)
-                  : _bgCard,
-              border: Border.all(
-                color: isSelected
-                    ? _purple.withValues(alpha: 0.6)
-                    : Colors.white.withValues(alpha: 0.1),
-                width: 2,
-              ),
-            ),
-            child: Center(
-              child: Icon(
-                icon,
-                color: isSelected ? _purpleLight : _textSecondary,
-                size: 32,
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: TextStyle(
-              color: isSelected ? _textPrimary : _textSecondary,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

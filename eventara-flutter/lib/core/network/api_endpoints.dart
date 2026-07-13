@@ -11,12 +11,14 @@ class ApiEndpoints {
   static const String logout = '/api/auth/logout';
 
   // ── User ──────────────────────────────────────────────────────────────────
-  static const String userProfile = '/api/users/profile';
-  static const String updateProfile = '/api/users/profile';
+  static const String userProfile = '/api/users/me';
+  static const String updateProfile = '/api/users/me';
+  static const String changePassword = '/api/users/me/change-password';
 
-  // ── Events ────────────────────────────────────────────────────────────────
+  // ── Events (public) ───────────────────────────────────────────────────────
   static const String events = '/api/events';
   static String eventById(String id) => '/api/events/$id';
+  static const String eventCategories = '/api/events/categories';
   static const String featuredEvents = '/api/events/featured';
   static const String searchEvents = '/api/events/search';
 
@@ -29,16 +31,25 @@ class ApiEndpoints {
   static const String organizerReports = '/api/organizer/reports';
   static String submitEvent(String id) => '/api/organizer/events/$id/submit';
 
-  // ── Booking ───────────────────────────────────────────────────────────────
-  static const String bookings = '/api/bookings';
-  static String bookingById(String id) => '/api/bookings/$id';
-  static String bookingQr(String id) => '/api/bookings/$id/qr';
-  static const String myTickets = '/api/bookings/my-tickets';
-  static const String bookingHistory = '/api/bookings/history';
+  // ── Customer Bookings ─────────────────────────────────────────────────────
+  static const String lockSeats = '/api/customer/bookings/lock-seats';
+  static const String createBooking = '/api/customer/bookings';
+  static const String myBookings = '/api/customer/bookings';
+  static String bookingById(String id) => '/api/customer/bookings/$id';
+  static String cancelBooking(String id) => '/api/customer/bookings/$id/cancel';
 
-  // ── Payment ───────────────────────────────────────────────────────────────
-  static const String payment = '/api/payments';
-  static String paymentByBooking(String bookingId) => '/api/payments/$bookingId';
+  // ── Customer Tickets ──────────────────────────────────────────────────────
+  static String generateTicket(String bookingId) =>
+      '/api/customer/tickets/generate/$bookingId';
+  static const String myTickets = '/api/customer/tickets';
+  static String ticketByBookingId(String bookingId) =>
+      '/api/customer/tickets/booking/$bookingId';
+  static String ticketByCode(String ticketCode) =>
+      '/api/customer/tickets/code/$ticketCode';
+
+  // ── Legacy aliases kept for backward-compat ───────────────────────────────
+  static String bookingQr(String id) => '/api/customer/bookings/$id/qr';
+  static const String bookingHistory = '/api/customer/bookings';
 
   // ── Seat Map ──────────────────────────────────────────────────────────────
   static String seatMap(String eventId) => '/api/events/$eventId/seats';
@@ -53,8 +64,10 @@ class ApiEndpoints {
   static String approveEvent(String id) => '/api/admin/events/$id/approve';
   static String rejectEvent(String id) => '/api/admin/events/$id/reject';
   static const String adminOrganizerApplications = '/api/admin/organizer-applications';
-  static String approveOrganizer(String id) => '/api/admin/organizer-applications/$id/approve';
-  static String rejectOrganizer(String id) => '/api/admin/organizer-applications/$id/reject';
+  static String approveOrganizer(String id) =>
+      '/api/admin/organizer-applications/$id/approve';
+  static String rejectOrganizer(String id) =>
+      '/api/admin/organizer-applications/$id/reject';
   static const String adminCategories = '/api/admin/categories';
   static const String adminAnalytics = '/api/admin/analytics';
   static const String adminAuditLog = '/api/admin/audit-log';
