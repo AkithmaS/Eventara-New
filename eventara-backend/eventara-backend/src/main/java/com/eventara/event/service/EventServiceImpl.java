@@ -1,6 +1,8 @@
 package com.eventara.event.service;
 
+import com.eventara.booking.repository.BookingRepository;
 import com.eventara.booking.service.BookingService;
+import com.eventara.common.enums.BookingStatus;
 import com.eventara.common.enums.EventStatus;
 import com.eventara.common.exception.BadRequestException;
 import com.eventara.common.exception.ForbiddenException;
@@ -37,6 +39,7 @@ public class EventServiceImpl implements EventService {
     private final SeatZoneRepository seatZoneRepository;
     private final CategoryRepository categoryRepository;
     private final OrganizerRepository organizerRepository;
+    private final BookingRepository bookingRepository;
     private final BookingService bookingService;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
@@ -45,6 +48,7 @@ public class EventServiceImpl implements EventService {
                             SeatZoneRepository seatZoneRepository,
                             CategoryRepository categoryRepository,
                             OrganizerRepository organizerRepository,
+                            BookingRepository bookingRepository,
                             @Lazy BookingService bookingService,
                             UserRepository userRepository,
                             @Lazy NotificationService notificationService) {
@@ -52,6 +56,7 @@ public class EventServiceImpl implements EventService {
         this.seatZoneRepository = seatZoneRepository;
         this.categoryRepository = categoryRepository;
         this.organizerRepository = organizerRepository;
+        this.bookingRepository = bookingRepository;
         this.bookingService = bookingService;
         this.userRepository = userRepository;
         this.notificationService = notificationService;
@@ -276,6 +281,16 @@ public class EventServiceImpl implements EventService {
             }
         }
 
+        // Calculate available capacity based on confirmed bookings
+        int availableCapacity = event.getMaxCapacity() != null ? event.getMaxCapacity() : 0;
+        if (availableCapacity > 0) {
+            long confirmedBookings = bookingRepository.findByEventId(event.getId()).stream()
+                    .filter(b -> b.getStatus() == BookingStatus.CONFIRMED)
+                    .mapToInt(b -> b.getQuantity() != null ? b.getQuantity() : 0)
+                    .sum();
+            availableCapacity = Math.max(0, availableCapacity - (int) confirmedBookings);
+        }
+
         // Resolve seat zones
         List<SeatZoneResponse> zones = seatZoneRepository.findByEventId(event.getId())
                 .stream()
@@ -306,6 +321,7 @@ public class EventServiceImpl implements EventService {
                 .status(event.getStatus().name())
                 .ticketType(event.getTicketType() != null ? event.getTicketType().name() : null)
                 .maxCapacity(event.getMaxCapacity())
+                .availableCapacity(availableCapacity)
                 .generalAdmissionPrice(event.getGeneralAdmissionPrice())
                 .seatMapJson(event.getSeatMapJson())
                 .rejectionNotes(event.getRejectionNotes())

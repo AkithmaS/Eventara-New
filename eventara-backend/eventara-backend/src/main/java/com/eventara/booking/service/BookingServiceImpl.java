@@ -318,6 +318,19 @@ public class BookingServiceImpl implements BookingService {
         log.info("Cancelled {} bookings and released seats for eventId={}", bookings.size(), eventId);
     }
 
+    // ── Get Event Seats ──────────────────────────────────────────────────────
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<SeatResponse> getEventSeats(Long eventId) {
+        eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found: " + eventId));
+
+        return seatRepository.findByEventId(eventId).stream()
+                .map(this::toSeatResponse)
+                .toList();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private Booking findBookingById(Long bookingId) {

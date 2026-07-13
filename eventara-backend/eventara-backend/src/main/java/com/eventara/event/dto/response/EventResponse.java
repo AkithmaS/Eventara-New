@@ -32,6 +32,7 @@ public class EventResponse {
     private String status;
     private String ticketType;
     private Integer maxCapacity;
+    private Integer availableCapacity;
     private BigDecimal generalAdmissionPrice;
     private String seatMapJson;
     private String rejectionNotes;
