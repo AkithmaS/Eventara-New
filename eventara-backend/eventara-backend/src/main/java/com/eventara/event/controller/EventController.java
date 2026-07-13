@@ -1,5 +1,7 @@
 package com.eventara.event.controller;
 
+import com.eventara.booking.dto.response.SeatResponse;
+import com.eventara.booking.service.BookingService;
 import com.eventara.common.response.ApiResponse;
 import com.eventara.event.dto.response.CategoryResponse;
 import com.eventara.event.dto.response.EventResponse;
@@ -18,6 +20,7 @@ public class EventController {
 
     private final EventService eventService;
     private final CategoryService categoryService;
+    private final BookingService bookingService;
 
     // GET /api/events?categoryId=&keyword=  (public)
     @GetMapping
@@ -36,6 +39,13 @@ public class EventController {
         return ResponseEntity.ok(ApiResponse.success(event, "Event fetched successfully"));
     }
 
+    // GET /api/events/{id}/seats  (public - fetch seat map for event)
+    @GetMapping("/{id}/seats")
+    public ResponseEntity<ApiResponse<List<SeatResponse>>> getEventSeats(@PathVariable Long id) {
+        List<SeatResponse> seats = bookingService.getEventSeats(id);
+        return ResponseEntity.ok(ApiResponse.success(seats, "Seats fetched successfully"));
+    }
+
     // GET /api/events/categories  (public)
     @GetMapping("/categories")
     public ResponseEntity<ApiResponse<List<CategoryResponse>>> getAllActiveCategories() {
@@ -43,3 +53,4 @@ public class EventController {
         return ResponseEntity.ok(ApiResponse.success(categories, "Categories fetched successfully"));
     }
 }
+

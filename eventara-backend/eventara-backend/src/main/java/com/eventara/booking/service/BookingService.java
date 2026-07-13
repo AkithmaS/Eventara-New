@@ -22,4 +22,6 @@ public interface BookingService {
     List<BookingResponse> getBookingsByEvent(Long eventId);
 
     void cancelAllBookingsForEvent(Long eventId);
+
+    List<SeatResponse> getEventSeats(Long eventId);
 }
