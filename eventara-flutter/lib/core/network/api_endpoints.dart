@@ -23,9 +23,17 @@ class ApiEndpoints {
   static const String searchEvents = '/api/events/search';
 
   // ── Organizer ─────────────────────────────────────────────────────────────
-  static const String organizerEvents = '/api/organizer/events';
-  static String organizerEventById(String id) => '/api/organizer/events/$id';
+  static const String organizerProfile = '/api/organizer/profile';
   static const String organizerDashboard = '/api/organizer/dashboard';
+  static const String organizerEvents = '/api/organizer/events';
+  static const String organizerEventsByStatus = '/api/organizer/events/status';
+  static const String organizerCreateEvent = '/api/organizer/events';
+  static String organizerUpdateEvent(String id) => '/api/organizer/events/$id';
+  static String organizerEventById(String id) => '/api/organizer/events/$id';
+  static String organizerSubmitEvent(String id) => '/api/organizer/events/$id/submit';
+  static String organizerCancelEvent(String id) => '/api/organizer/events/$id/cancel';
+  static String organizerSeatMap(String id) => '/api/organizer/events/$id/seatmap';
+  static String organizerPricingZones(String id) => '/api/organizer/events/$id/pricing';
   static String seatMapEditor(String eventId) => '/api/organizer/events/$eventId/seats';
   static String pricingSetup(String eventId) => '/api/organizer/events/$eventId/pricing';
   static const String organizerReports = '/api/organizer/reports';
