@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/organizer_event_notifier.dart';
 
 // ─── Color tokens ──────────────────────────────────────────────────────────
 const _bgDeep = Color(0xFF0D0B1E);

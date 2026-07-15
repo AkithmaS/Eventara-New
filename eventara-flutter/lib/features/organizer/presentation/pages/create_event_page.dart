@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:eventara/core/router/app_routes.dart';
+import '../../data/models/organizer_event_model.dart';
+import '../providers/organizer_event_notifier.dart';
 
 // ─── Colour tokens ──────────────────────────────────────────────────────────
 const _bgDeep = Color(0xFF0D0B1E);
@@ -12,36 +16,32 @@ const _textPrimary = Color(0xFFFFFFFF);
 const _textSecondary = Color(0xFFB0A8D0);
 const _accentBlue = Color(0xFF4ECDC4);
 
-class CreateEventPage extends StatefulWidget {
+class CreateEventPage extends ConsumerStatefulWidget {
   const CreateEventPage({super.key});
 
   @override
-  State<CreateEventPage> createState() => _CreateEventPageState();
+  ConsumerState<CreateEventPage> createState() => _CreateEventPageState();
 }
 
-class _CreateEventPageState extends State<CreateEventPage> {
-  // Form controllers
+class _CreateEventPageState extends ConsumerState<CreateEventPage> {
   final _titleCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
-  final _dateCtrl = TextEditingController();
-  final _startTimeCtrl = TextEditingController();
-  final _endTimeCtrl = TextEditingController();
   final _venueNameCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
   final _cityCtrl = TextEditingController();
   final _maxCapacityCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
 
-  String _selectedCategory = 'Music';
-  String _selectedTicketType = 'General Admission';
+  DateTime? _eventDate;
+  DateTime? _endDate;
+  String _selectedTicketType = 'GENERAL_ADMISSION';
+  int? _selectedCategoryId;
+  bool _isSubmitting = false;
 
   @override
   void dispose() {
     _titleCtrl.dispose();
     _descriptionCtrl.dispose();
-    _dateCtrl.dispose();
-    _startTimeCtrl.dispose();
-    _endTimeCtrl.dispose();
     _venueNameCtrl.dispose();
     _addressCtrl.dispose();
     _cityCtrl.dispose();
@@ -50,8 +50,67 @@ class _CreateEventPageState extends State<CreateEventPage> {
     super.dispose();
   }
 
+  String? _validate() {
+    if (_titleCtrl.text.isEmpty) return 'Title is required';
+    if (_descriptionCtrl.text.isEmpty) return 'Description is required';
+    if (_eventDate == null) return 'Event date is required';
+    if (_endDate == null) return 'End date is required';
+    if (_venueNameCtrl.text.isEmpty) return 'Venue name is required';
+    if (_addressCtrl.text.isEmpty) return 'Address is required';
+    if (_cityCtrl.text.isEmpty) return 'City is required';
+    if (_maxCapacityCtrl.text.isEmpty) return 'Capacity is required';
+    if (_selectedCategoryId == null) return 'Category is required';
+    if (_selectedTicketType == 'GENERAL_ADMISSION' && _priceCtrl.text.isEmpty) {
+      return 'Price is required for General Admission';
+    }
+    return null;
+  }
+
+  Future<void> _submit({bool asDraft = false}) async {
+    final error = _validate();
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+
+    final data = {
+      'title': _titleCtrl.text,
+      'description': _descriptionCtrl.text,
+      'eventDate': _eventDate!.toIso8601String(),
+      'endDate': _endDate!.toIso8601String(),
+      'venueName': _venueNameCtrl.text,
+      'venueAddress': _addressCtrl.text,
+      'city': _cityCtrl.text,
+      'ticketType': _selectedTicketType,
+      'maxCapacity': int.tryParse(_maxCapacityCtrl.text) ?? 0,
+      'categoryId': _selectedCategoryId,
+      if (_selectedTicketType == 'GENERAL_ADMISSION' && _priceCtrl.text.isNotEmpty)
+        'generalAdmissionPrice': double.tryParse(_priceCtrl.text),
+    };
+
+    final ok = await ref.read(organizerEventsProvider.notifier).createEvent(data);
+
+    if (mounted) {
+      setState(() => _isSubmitting = false);
+      if (ok) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Event created successfully')),
+        );
+        context.go(AppRoutes.organizerMyEvents);
+      } else {
+        final state = ref.read(organizerEventsProvider);
+        final msg = state is OrganizerEventsError ? state.message : 'Failed to create event';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final categoriesAsync = ref.watch(categoriesProvider);
+
     return Scaffold(
       backgroundColor: _bgDeep,
       body: SafeArea(
@@ -68,103 +127,22 @@ class _CreateEventPageState extends State<CreateEventPage> {
                     Row(
                       children: [
                         GestureDetector(
-                          onTap: () => context.pop(),
-                          child: const Icon(
-                            Icons.arrow_back_rounded,
-                            color: _textPrimary,
-                            size: 24,
-                          ),
+                          onTap: () => context.go(AppRoutes.organizerMyEvents),
+                          child: const Icon(Icons.arrow_back_rounded,
+                              color: _textPrimary, size: 24),
                         ),
                         const SizedBox(width: 12),
-                        const Text(
-                          'Create Event',
-                          style: TextStyle(
-                            color: _textPrimary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                        const Text('Create Event',
+                            style: TextStyle(
+                                color: _textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700)),
                       ],
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        // Save draft
-                      },
-                      child: const Text(
-                        'Save Draft',
-                        style: TextStyle(
-                          color: _purpleLight,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 20),
-
-              // ── Event Banner Upload ──────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: GestureDetector(
-                  onTap: () {
-                    // Upload banner
-                  },
-                  child: Container(
-                    height: 140,
-                    decoration: BoxDecoration(
-                      color: _bgCard,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: _accentBlue.withValues(alpha: 0.3),
-                        width: 2,
-                        style: BorderStyle.solid,
-                      ),
-                    ),
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: _purple.withValues(alpha: 0.2),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Center(
-                              child: Icon(
-                                Icons.image_rounded,
-                                color: _accentBlue,
-                                size: 24,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Tap to upload event banner',
-                            style: TextStyle(
-                              color: _textPrimary,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Recommended size: 1200x600px',
-                            style: TextStyle(
-                              color: _textSecondary.withValues(alpha: 0.6),
-                              fontSize: 11,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 28),
 
               // ── Event Details Section ────────────────────────────────
               Padding(
@@ -172,33 +150,23 @@ class _CreateEventPageState extends State<CreateEventPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const _SectionHeader('EVENT DETAILS'),
+                    _SectionHeader('EVENT DETAILS'),
                     const SizedBox(height: 14),
-                    // Event Title
-                    _FormField(
-                      label: 'Event title',
-                      icon: Icons.text_fields_rounded,
-                      controller: _titleCtrl,
-                      hintText: 'Enter event title',
+                    _FormField(label: 'Event Title', icon: Icons.text_fields_rounded, controller: _titleCtrl, hintText: 'Enter event title'),
+                    const SizedBox(height: 12),
+
+                    // Category Dropdown
+                    categoriesAsync.when(
+                      loading: () => const Center(child: CircularProgressIndicator(color: _purple)),
+                      error: (e, _) => Text('Failed to load categories', style: TextStyle(color: _textSecondary)),
+                      data: (categories) => _CategorySelect(
+                        categories: categories,
+                        selectedId: _selectedCategoryId,
+                        onChanged: (id) => setState(() => _selectedCategoryId = id),
+                      ),
                     ),
                     const SizedBox(height: 12),
-                    // Category Select
-                    _FormSelect(
-                      label: 'Select Category',
-                      icon: Icons.category_rounded,
-                      value: _selectedCategory,
-                      items: ['Music', 'Sports', 'Theatre', 'Comedy', 'Meetup', 'Food'],
-                      onChanged: (value) => setState(() => _selectedCategory = value),
-                    ),
-                    const SizedBox(height: 12),
-                    // Description
-                    _FormField(
-                      label: 'Describe your event...',
-                      icon: Icons.description_rounded,
-                      controller: _descriptionCtrl,
-                      hintText: 'Tell people what your event is about',
-                      maxLines: 3,
-                    ),
+                    _FormField(label: 'Describe your event...', icon: Icons.description_rounded, controller: _descriptionCtrl, hintText: 'Tell people what your event is about', maxLines: 3),
                   ],
                 ),
               ),
@@ -210,46 +178,18 @@ class _CreateEventPageState extends State<CreateEventPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const _SectionHeader('DATE & TIME'),
+                    _SectionHeader('DATE & TIME'),
                     const SizedBox(height: 14),
-                    // Date picker
-                    _FormField(
-                      label: 'mm/dd/yyyy',
-                      icon: Icons.calendar_today_rounded,
-                      controller: _dateCtrl,
-                      hintText: 'Select date',
-                      readOnly: true,
-                      onTap: () async {
-                        final date = await showDatePicker(
-                          context: context,
-                          initialDate: DateTime.now(),
-                          firstDate: DateTime.now(),
-                          lastDate: DateTime(2099),
-                        );
-                        if (date != null) {
-                          _dateCtrl.text =
-                              '${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}/${date.year}';
-                        }
-                      },
+                    _DatePickerField(
+                      label: 'Event Date & Time',
+                      value: _eventDate,
+                      onPick: (dt) => setState(() => _eventDate = dt),
                     ),
-                    const SizedBox(height: 14),
-                    // Start & End time
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _TimePickerField(
-                            label: 'Start Time',
-                            controller: _startTimeCtrl,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _TimePickerField(
-                            label: 'End Time',
-                            controller: _endTimeCtrl,
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: 12),
+                    _DatePickerField(
+                      label: 'End Date & Time',
+                      value: _endDate,
+                      onPick: (dt) => setState(() => _endDate = dt),
                     ),
                   ],
                 ),
@@ -262,28 +202,13 @@ class _CreateEventPageState extends State<CreateEventPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const _SectionHeader('VENUE'),
+                    _SectionHeader('VENUE'),
                     const SizedBox(height: 14),
-                    _FormField(
-                      label: 'Venue Name',
-                      icon: Icons.location_city_rounded,
-                      controller: _venueNameCtrl,
-                      hintText: 'Enter venue name',
-                    ),
+                    _FormField(label: 'Venue Name', icon: Icons.location_city_rounded, controller: _venueNameCtrl, hintText: 'Enter venue name'),
                     const SizedBox(height: 12),
-                    _FormField(
-                      label: 'Full Address',
-                      icon: Icons.location_on_rounded,
-                      controller: _addressCtrl,
-                      hintText: 'Street address',
-                    ),
+                    _FormField(label: 'Full Address', icon: Icons.location_on_rounded, controller: _addressCtrl, hintText: 'Street address'),
                     const SizedBox(height: 12),
-                    _FormField(
-                      label: 'City',
-                      icon: Icons.apartment_rounded,
-                      controller: _cityCtrl,
-                      hintText: 'City name',
-                    ),
+                    _FormField(label: 'City', icon: Icons.apartment_rounded, controller: _cityCtrl, hintText: 'City name'),
                   ],
                 ),
               ),
@@ -295,26 +220,24 @@ class _CreateEventPageState extends State<CreateEventPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const _SectionHeader('TICKET TYPE'),
+                    _SectionHeader('TICKET TYPE'),
                     const SizedBox(height: 14),
-                    // Ticket type tabs
                     Row(
                       children: [
                         _TicketTypeTab(
                           label: 'General Admission',
-                          isSelected: _selectedTicketType == 'General Admission',
-                          onTap: () => setState(() => _selectedTicketType = 'General Admission'),
+                          isSelected: _selectedTicketType == 'GENERAL_ADMISSION',
+                          onTap: () => setState(() => _selectedTicketType = 'GENERAL_ADMISSION'),
                         ),
                         const SizedBox(width: 12),
                         _TicketTypeTab(
                           label: 'Seated',
-                          isSelected: _selectedTicketType == 'Seated',
-                          onTap: () => setState(() => _selectedTicketType = 'Seated'),
+                          isSelected: _selectedTicketType == 'SEATED',
+                          onTap: () => setState(() => _selectedTicketType = 'SEATED'),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    // Capacity & Price
                     Row(
                       children: [
                         Expanded(
@@ -326,16 +249,12 @@ class _CreateEventPageState extends State<CreateEventPage> {
                             keyboardType: TextInputType.number,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _FormField(
-                            label: 'Price (LKR)',
-                            icon: Icons.attach_money_rounded,
-                            controller: _priceCtrl,
-                            hintText: '0.00',
-                            keyboardType: TextInputType.number,
+                        if (_selectedTicketType == 'GENERAL_ADMISSION') ...[
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _LkrPriceField(controller: _priceCtrl),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ],
@@ -349,44 +268,46 @@ class _CreateEventPageState extends State<CreateEventPage> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: _purpleLight.withValues(alpha: 0.3),
+                      child: GestureDetector(
+                        onTap: _isSubmitting ? null : () => _submit(asDraft: true),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: _purpleLight.withValues(alpha: 0.3)),
                           ),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'Save as Draft',
-                            style: TextStyle(
-                              color: _purpleLight,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
+                          child: const Center(
+                            child: Text('Save as Draft',
+                                style: TextStyle(
+                                    color: _purpleLight,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700)),
                           ),
                         ),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          gradient: const LinearGradient(
-                            colors: [_gradStart, _gradEnd],
+                      child: GestureDetector(
+                        onTap: _isSubmitting ? null : () => _submit(),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10),
+                            gradient: const LinearGradient(colors: [_gradStart, _gradEnd]),
                           ),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'Submit for Review',
-                            style: TextStyle(
-                              color: _textPrimary,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
+                          child: Center(
+                            child: _isSubmitting
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                        color: _textPrimary, strokeWidth: 2))
+                                : const Text('Submit for Review',
+                                    style: TextStyle(
+                                        color: _textPrimary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700)),
                           ),
                         ),
                       ),
@@ -403,23 +324,224 @@ class _CreateEventPageState extends State<CreateEventPage> {
   }
 }
 
+// ── DatePickerField ──────────────────────────────────────────────────────────
+class _DatePickerField extends StatefulWidget {
+  final String label;
+  final DateTime? value;
+  final Function(DateTime) onPick;
+
+  const _DatePickerField({
+    required this.label,
+    required this.value,
+    required this.onPick,
+  });
+
+  @override
+  State<_DatePickerField> createState() => _DatePickerFieldState();
+}
+
+class _DatePickerFieldState extends State<_DatePickerField> {
+  bool _focused = false;
+
+  String _format(DateTime? dt) {
+    if (dt == null) return '';
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}  $h:$m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _focused = true),
+      onExit: (_) => setState(() => _focused = false),
+      child: GestureDetector(
+        onTap: () async {
+          final date = await showDatePicker(
+            context: context,
+            initialDate: DateTime.now(),
+            firstDate: DateTime.now(),
+            lastDate: DateTime(2099),
+          );
+          if (date == null || !context.mounted) return;
+          final time = await showTimePicker(
+              context: context, initialTime: TimeOfDay.now());
+          if (time == null) return;
+          final combined = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+          widget.onPick(combined);
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+            color: _bgCard,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: _focused
+                  ? _purple.withValues(alpha: 0.4)
+                  : Colors.white.withValues(alpha: 0.08),
+              width: 1.5,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Icon(Icons.calendar_today_rounded,
+                    color: _focused ? _purpleLight : _textSecondary, size: 18),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    widget.value != null ? _format(widget.value) : widget.label,
+                    style: TextStyle(
+                        color: widget.value != null
+                            ? _textPrimary
+                            : _textSecondary.withValues(alpha: 0.5),
+                        fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Category Select ──────────────────────────────────────────────────────────
+class _CategorySelect extends StatelessWidget {
+  final List<CategoryModel> categories;
+  final int? selectedId;
+  final Function(int?) onChanged;
+
+  const _CategorySelect({
+    required this.categories,
+    required this.selectedId,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _bgCard,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1.5),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        child: DropdownButton<int>(
+          value: selectedId,
+          hint: Row(
+            children: [
+              Icon(Icons.category_rounded, color: _textSecondary, size: 18),
+              const SizedBox(width: 8),
+              Text('Select Category',
+                  style: TextStyle(
+                      color: _textSecondary.withValues(alpha: 0.5), fontSize: 13)),
+            ],
+          ),
+          onChanged: onChanged,
+          underline: const SizedBox(),
+          isExpanded: true,
+          dropdownColor: _bgCard,
+          icon: Icon(Icons.expand_more_rounded, color: _textSecondary, size: 20),
+          style: const TextStyle(color: _textPrimary, fontSize: 14),
+          items: categories
+              .map((cat) => DropdownMenuItem<int>(
+                    value: cat.id,
+                    child: Row(
+                      children: [
+                        Icon(Icons.category_rounded,
+                            color: _textSecondary, size: 16),
+                        const SizedBox(width: 8),
+                        Text(cat.name),
+                      ],
+                    ),
+                  ))
+              .toList(),
+        ),
+      ),
+    );
+  }
+}
+
+// ── LKR Price Field ──────────────────────────────────────────────────────────
+class _LkrPriceField extends StatefulWidget {
+  final TextEditingController controller;
+  const _LkrPriceField({required this.controller});
+
+  @override
+  State<_LkrPriceField> createState() => _LkrPriceFieldState();
+}
+
+class _LkrPriceFieldState extends State<_LkrPriceField> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _focused = true),
+      onExit: (_) => setState(() => _focused = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          color: _bgCard,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: _focused
+                ? _purple.withValues(alpha: 0.4)
+                : Colors.white.withValues(alpha: 0.08),
+            width: 1.5,
+          ),
+        ),
+        child: TextField(
+          controller: widget.controller,
+          keyboardType: TextInputType.number,
+          style: const TextStyle(color: _textPrimary, fontSize: 14),
+          decoration: InputDecoration(
+            hintText: '0.00',
+            hintStyle: TextStyle(
+                color: _textSecondary.withValues(alpha: 0.5), fontSize: 13),
+            border: InputBorder.none,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            prefixIcon: Padding(
+              padding: const EdgeInsets.only(left: 12, right: 8),
+              child: Center(
+                widthFactor: 1,
+                child: Text(
+                  'LKR',
+                  style: TextStyle(
+                    color: _focused ? _purpleLight : _textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ── Section Header widget ────────────────────────────────────────────────────
 class _SectionHeader extends StatelessWidget {
   final String title;
-
   const _SectionHeader(this.title);
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      title,
-      style: TextStyle(
-        color: _textSecondary,
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0.8,
-      ),
-    );
+    return Text(title,
+        style: TextStyle(
+            color: _textSecondary,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8));
   }
 }
 
@@ -476,189 +598,18 @@ class _FormFieldState extends State<_FormField> {
           minLines: widget.maxLines == 1 ? 1 : widget.maxLines,
           readOnly: widget.readOnly,
           onTap: widget.onTap,
-          style: const TextStyle(
-            color: _textPrimary,
-            fontSize: 14,
-          ),
+          style: const TextStyle(color: _textPrimary, fontSize: 14),
           decoration: InputDecoration(
             hintText: widget.hintText,
             hintStyle: TextStyle(
-              color: _textSecondary.withValues(alpha: 0.5),
-              fontSize: 13,
-            ),
+                color: _textSecondary.withValues(alpha: 0.5), fontSize: 13),
             border: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 12,
-            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             prefixIcon: Padding(
               padding: const EdgeInsets.only(left: 12, right: 8),
-              child: Icon(
-                widget.icon,
-                color: _focused ? _purpleLight : _textSecondary,
-                size: 18,
-              ),
+              child: Icon(widget.icon,
+                  color: _focused ? _purpleLight : _textSecondary, size: 18),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Form Select widget ───────────────────────────────────────────────────────
-class _FormSelect extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final String value;
-  final List<String> items;
-  final Function(String) onChanged;
-
-  const _FormSelect({
-    required this.label,
-    required this.icon,
-    required this.value,
-    required this.items,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: _bgCard,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.08),
-          width: 1.5,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        child: DropdownButton<String>(
-          value: value,
-          onChanged: (newValue) {
-            if (newValue != null) onChanged(newValue);
-          },
-          underline: const SizedBox(),
-          isExpanded: true,
-          dropdownColor: _bgCard,
-          icon: Icon(
-            Icons.expand_more_rounded,
-            color: _textSecondary,
-            size: 20,
-          ),
-          style: const TextStyle(
-            color: _textPrimary,
-            fontSize: 14,
-          ),
-          items: items
-              .map((item) => DropdownMenuItem(
-                    value: item,
-                    child: Row(
-                      children: [
-                        Icon(Icons.category_rounded, color: _textSecondary, size: 16),
-                        const SizedBox(width: 8),
-                        Text(item),
-                      ],
-                    ),
-                  ))
-              .toList(),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Time Picker Field widget ─────────────────────────────────────────────────
-class _TimePickerField extends StatefulWidget {
-  final String label;
-  final TextEditingController controller;
-
-  const _TimePickerField({
-    required this.label,
-    required this.controller,
-  });
-
-  @override
-  State<_TimePickerField> createState() => _TimePickerFieldState();
-}
-
-class _TimePickerFieldState extends State<_TimePickerField> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _focused = true),
-      onExit: (_) => setState(() => _focused = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        decoration: BoxDecoration(
-          color: _bgCard,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: _focused
-                ? _purple.withValues(alpha: 0.4)
-                : Colors.white.withValues(alpha: 0.08),
-            width: 1.5,
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              Icon(
-                Icons.schedule_rounded,
-                color: _focused ? _purpleLight : _textSecondary,
-                size: 18,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  controller: widget.controller,
-                  readOnly: true,
-                  onTap: () async {
-                    final time = await showTimePicker(
-                      context: context,
-                      initialTime: TimeOfDay.now(),
-                    );
-                    if (time != null) {
-                      widget.controller.text = time.format(context);
-                    }
-                  },
-                  style: const TextStyle(
-                    color: _textPrimary,
-                    fontSize: 14,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: widget.label,
-                    hintStyle: TextStyle(
-                      color: _textSecondary.withValues(alpha: 0.5),
-                      fontSize: 13,
-                    ),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-              GestureDetector(
-                onTap: () async {
-                  final time = await showTimePicker(
-                    context: context,
-                    initialTime: TimeOfDay.now(),
-                  );
-                  if (time != null) {
-                    widget.controller.text = time.format(context);
-                  }
-                },
-                child: Icon(
-                  Icons.access_time_rounded,
-                  color: _textSecondary.withValues(alpha: 0.6),
-                  size: 18,
-                ),
-              ),
-            ],
           ),
         ),
       ),
@@ -689,20 +640,15 @@ class _TicketTypeTab extends StatelessWidget {
             color: isSelected ? _purple : _bgCard,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: isSelected
-                  ? _purple
-                  : Colors.white.withValues(alpha: 0.1),
+              color: isSelected ? _purple : Colors.white.withValues(alpha: 0.1),
             ),
           ),
           child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? _textPrimary : _textSecondary,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+            child: Text(label,
+                style: TextStyle(
+                    color: isSelected ? _textPrimary : _textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700)),
           ),
         ),
       ),

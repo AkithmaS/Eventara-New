@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:eventara/core/router/app_routes.dart';
+import '../../data/models/organizer_event_model.dart';
+import '../providers/organizer_event_notifier.dart';
 
 // ─── Colour tokens ──────────────────────────────────────────────────────────
 const _bgDeep = Color(0xFF0D0B1E);
@@ -16,32 +19,134 @@ const _accentBlue = Color(0xFF4ECDC4);
 const _accentOrange = Color(0xFFD97744);
 const _accentRed = Color(0xFFFF6B6B);
 
-class EditEventPage extends StatefulWidget {
-  final String eventId;
+Color _statusColor(String status) {
+  switch (status.toUpperCase()) {
+    case 'PUBLISHED': case 'APPROVED': return _accentGreen;
+    case 'DRAFT': return _textSecondary;
+    case 'SUBMITTED': return _accentBlue;
+    case 'REJECTED': case 'CANCELLED': return Colors.red;
+    default: return _textSecondary;
+  }
+}
 
+class EditEventPage extends ConsumerStatefulWidget {
+  final String eventId;
   const EditEventPage({super.key, required this.eventId});
 
   @override
-  State<EditEventPage> createState() => _EditEventPageState();
+  ConsumerState<EditEventPage> createState() => _EditEventPageState();
 }
 
-class _EditEventPageState extends State<EditEventPage> {
-  late TextEditingController _titleController;
-  late TextEditingController _descriptionController;
-  late TextEditingController _venueController;
-  late TextEditingController _dateController;
-  late TextEditingController _capacityController;
+class _EditEventPageState extends ConsumerState<EditEventPage> {
+  final _titleController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  final _venueController = TextEditingController();
+  final _venueAddressController = TextEditingController();
+  final _cityController = TextEditingController();
+  final _capacityController = TextEditingController();
+  final _priceController = TextEditingController();
+
+  DateTime? _eventDate;
+  DateTime? _endDate;
+  OrganizerEventModel? _event;
+  bool _isSaving = false;
+  bool _isSubmitting = false;
 
   @override
   void initState() {
     super.initState();
-    _titleController = TextEditingController(text: 'Neon Nights Music Fest');
-    _descriptionController = TextEditingController(
-      text: 'Join us for an electrifying night of music and entertainment.',
-    );
-    _venueController = TextEditingController(text: 'O2 Arena');
-    _dateController = TextEditingController(text: 'Oct 24, 2023 • 8:00 PM');
-    _capacityController = TextEditingController(text: '5000');
+    _loadEvent();
+  }
+
+  void _loadEvent() {
+    final state = ref.read(organizerEventsProvider);
+    if (state is OrganizerEventsLoaded) {
+      final id = int.tryParse(widget.eventId);
+      final found = state.events.where((e) => e.id == id).toList();
+      if (found.isNotEmpty) _populateForm(found.first);
+    } else {
+      // Load events first
+      Future.microtask(() async {
+        await ref.read(organizerEventsProvider.notifier).loadMyEvents();
+        if (mounted) _loadEvent();
+      });
+    }
+  }
+
+  void _populateForm(OrganizerEventModel event) {
+    setState(() {
+      _event = event;
+      _titleController.text = event.title;
+      _descriptionController.text = event.description ?? '';
+      _venueController.text = event.venueName ?? '';
+      _venueAddressController.text = event.venueAddress ?? '';
+      _cityController.text = event.city ?? '';
+      _capacityController.text = event.maxCapacity?.toString() ?? '';
+      _priceController.text = event.generalAdmissionPrice?.toString() ?? '';
+      if (event.eventDate != null) {
+        try { _eventDate = DateTime.parse(event.eventDate!); } catch (_) {}
+      }
+      if (event.endDate != null) {
+        try { _endDate = DateTime.parse(event.endDate!); } catch (_) {}
+      }
+    });
+  }
+
+  Future<void> _save() async {
+    if (_titleController.text.isEmpty) {
+      _snack('Title is required');
+      return;
+    }
+    setState(() => _isSaving = true);
+
+    final id = int.tryParse(widget.eventId);
+    if (id == null) return;
+
+    final data = {
+      'title': _titleController.text,
+      'description': _descriptionController.text,
+      'venueName': _venueController.text,
+      'venueAddress': _venueAddressController.text,
+      'city': _cityController.text,
+      'maxCapacity': int.tryParse(_capacityController.text) ?? 0,
+      if (_eventDate != null) 'eventDate': _eventDate!.toIso8601String(),
+      if (_endDate != null) 'endDate': _endDate!.toIso8601String(),
+      if (_event != null) 'ticketType': _event!.ticketType,
+      if (_priceController.text.isNotEmpty)
+        'generalAdmissionPrice': double.tryParse(_priceController.text),
+      if (_event != null) 'categoryId': _event!.categoryId,
+    };
+
+    final ok = await ref.read(organizerEventsProvider.notifier).updateEvent(id, data);
+    if (mounted) {
+      setState(() => _isSaving = false);
+      _snack(ok ? 'Event updated' : 'Update failed');
+      if (ok) context.go(AppRoutes.organizerMyEvents);
+    }
+  }
+
+  Future<void> _submit() async {
+    final id = int.tryParse(widget.eventId);
+    if (id == null) return;
+    setState(() => _isSubmitting = true);
+    final ok = await ref.read(organizerEventsProvider.notifier).submitEvent(id);
+    if (mounted) {
+      setState(() => _isSubmitting = false);
+      _snack(ok ? 'Event submitted for review' : 'Submit failed');
+      if (ok) context.go(AppRoutes.organizerMyEvents);
+    }
+  }
+
+  void _snack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  String _formatDate(DateTime? dt) {
+    if (dt == null) return '';
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}  $h:$m';
   }
 
   @override
@@ -49,13 +154,25 @@ class _EditEventPageState extends State<EditEventPage> {
     _titleController.dispose();
     _descriptionController.dispose();
     _venueController.dispose();
-    _dateController.dispose();
+    _venueAddressController.dispose();
+    _cityController.dispose();
     _capacityController.dispose();
+    _priceController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final eventsState = ref.watch(organizerEventsProvider);
+    if (_event == null && (eventsState is OrganizerEventsLoading || eventsState is OrganizerEventsInitial)) {
+      return const Scaffold(
+        backgroundColor: _bgDeep,
+        body: Center(child: CircularProgressIndicator(color: _purple)),
+      );
+    }
+
+    final status = _event?.status ?? 'DRAFT';
+
     return Scaffold(
       backgroundColor: _bgDeep,
       appBar: AppBar(
@@ -65,27 +182,15 @@ class _EditEventPageState extends State<EditEventPage> {
           onTap: () => context.go(AppRoutes.organizerMyEvents),
           child: const Icon(Icons.arrow_back_rounded, color: _textPrimary),
         ),
-        title: const Text(
-          'Edit Event',
-          style: TextStyle(
-            color: _textPrimary,
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
+        title: const Text('Edit Event',
+            style: TextStyle(color: _textPrimary, fontSize: 18, fontWeight: FontWeight.w800)),
         centerTitle: true,
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: GestureDetector(
-              onTap: () {
-                // Save event
-              },
-              child: const Icon(
-                Icons.check_circle_rounded,
-                color: _accentGreen,
-                size: 24,
-              ),
+              onTap: _isSaving ? null : _save,
+              child: Icon(Icons.check_circle_rounded, color: _accentGreen, size: 24),
             ),
           ),
         ],
@@ -103,47 +208,23 @@ class _EditEventPageState extends State<EditEventPage> {
                   width: double.infinity,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        _purple.withValues(alpha: 0.3),
-                        _gradEnd.withValues(alpha: 0.2),
-                      ],
+                      colors: [_purple.withValues(alpha: 0.3), _gradEnd.withValues(alpha: 0.2)],
                     ),
                   ),
                   child: Stack(
                     children: [
-                      Center(
-                        child: Icon(
-                          Icons.music_note_rounded,
-                          size: 80,
-                          color: _purple.withValues(alpha: 0.3),
-                        ),
-                      ),
+                      Center(child: Icon(Icons.event_rounded, size: 80, color: _purple.withValues(alpha: 0.3))),
                       Positioned(
                         bottom: 12,
                         right: 12,
-                        child: GestureDetector(
-                          onTap: () {
-                            // Change image
-                          },
-                          child: Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [_gradStart, _gradEnd],
-                              ),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Center(
-                              child: Icon(
-                                Icons.camera_alt_rounded,
-                                color: _textPrimary,
-                                size: 20,
-                              ),
-                            ),
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(colors: [_gradStart, _gradEnd]),
+                            shape: BoxShape.circle,
                           ),
+                          child: const Center(child: Icon(Icons.camera_alt_rounded, color: _textPrimary, size: 20)),
                         ),
                       ),
                     ],
@@ -152,70 +233,63 @@ class _EditEventPageState extends State<EditEventPage> {
               ),
             ),
 
-            // ── Basic Info Section ──────────────────────────────────────
             _SectionHeader(title: 'BASIC INFO'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
                 children: [
-                  _TextInputField(
-                    label: 'Event Title',
-                    controller: _titleController,
-                    icon: Icons.event_rounded,
-                  ),
+                  _TextInputField(label: 'Event Title', controller: _titleController, icon: Icons.event_rounded),
                   const SizedBox(height: 12),
-                  _TextInputField(
-                    label: 'Description',
-                    controller: _descriptionController,
-                    icon: Icons.description_rounded,
-                    maxLines: 3,
-                  ),
+                  _TextInputField(label: 'Description', controller: _descriptionController, icon: Icons.description_rounded, maxLines: 3),
                   const SizedBox(height: 12),
-                  _TextInputField(
-                    label: 'Venue',
-                    controller: _venueController,
-                    icon: Icons.location_on_rounded,
-                  ),
+                  _TextInputField(label: 'Venue', controller: _venueController, icon: Icons.location_city_rounded),
+                  const SizedBox(height: 12),
+                  _TextInputField(label: 'Address', controller: _venueAddressController, icon: Icons.location_on_rounded),
+                  const SizedBox(height: 12),
+                  _TextInputField(label: 'City', controller: _cityController, icon: Icons.apartment_rounded),
                 ],
               ),
             ),
             const SizedBox(height: 24),
 
-            // ── Date & Time Section ─────────────────────────────────────
             _SectionHeader(title: 'DATE & TIME'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
                 children: [
-                  _TextInputField(
-                    label: 'Date & Time',
-                    controller: _dateController,
-                    icon: Icons.calendar_today_rounded,
-                    readOnly: true,
+                  _DatePickerField(
+                    label: 'Event Date & Time',
+                    value: _eventDate,
+                    display: _formatDate(_eventDate),
+                    onPick: (dt) => setState(() => _eventDate = dt),
+                  ),
+                  const SizedBox(height: 12),
+                  _DatePickerField(
+                    label: 'End Date & Time',
+                    value: _endDate,
+                    display: _formatDate(_endDate),
+                    onPick: (dt) => setState(() => _endDate = dt),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 24),
 
-            // ── Capacity Section ────────────────────────────────────────
             _SectionHeader(title: 'CAPACITY'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
                 children: [
-                  _TextInputField(
-                    label: 'Total Capacity',
-                    controller: _capacityController,
-                    icon: Icons.people_rounded,
-                    keyboardType: TextInputType.number,
-                  ),
+                  _TextInputField(label: 'Total Capacity', controller: _capacityController, icon: Icons.people_rounded, keyboardType: TextInputType.number),
+                  if (_event?.ticketType == 'GENERAL_ADMISSION') ...[
+                    const SizedBox(height: 12),
+                    _TextInputField(label: 'Price (LKR)', controller: _priceController, icon: Icons.currency_exchange_rounded, keyboardType: TextInputType.number),
+                  ],
                 ],
               ),
             ),
             const SizedBox(height: 24),
 
-            // ── Event Status Section ────────────────────────────────────
             _SectionHeader(title: 'STATUS'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -224,68 +298,33 @@ class _EditEventPageState extends State<EditEventPage> {
                 decoration: BoxDecoration(
                   color: _bgCard,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.08),
-                  ),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                 ),
                 child: Row(
                   children: [
-                    Icon(
-                      Icons.info_outline_rounded,
-                      color: _accentBlue,
-                      size: 20,
-                    ),
+                    Icon(Icons.info_outline_rounded, color: _accentBlue, size: 20),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Current Status',
-                            style: TextStyle(
-                              color: _textSecondary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
+                          Text('Current Status', style: TextStyle(color: _textSecondary, fontSize: 11, fontWeight: FontWeight.w600)),
                           const SizedBox(height: 4),
-                          const Text(
-                            'PUBLISHED',
-                            style: TextStyle(
-                              color: _accentGreen,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
+                          Text(status, style: TextStyle(color: _statusColor(status), fontSize: 13, fontWeight: FontWeight.w700)),
                         ],
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
+                    if (_event?.rejectionNotes != null)
+                      Expanded(
+                        child: Text(_event!.rejectionNotes!,
+                            style: TextStyle(color: Colors.red.withValues(alpha: 0.8), fontSize: 11)),
                       ),
-                      decoration: BoxDecoration(
-                        color: _accentGreen.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        'LIVE',
-                        style: TextStyle(
-                          color: _accentGreen,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 24),
 
-            // ── Quick Actions Section ───────────────────────────────────
             _SectionHeader(title: 'QUICK ACTIONS'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -295,137 +334,67 @@ class _EditEventPageState extends State<EditEventPage> {
                     icon: Icons.grid_3x3_rounded,
                     title: 'Manage Seat Map',
                     description: 'Configure seating arrangement',
-                    onTap: () {
-                      context.go(AppRoutes.organizerSeatMapEditor);
-                    },
+                    onTap: () => context.go(AppRoutes.buildOrganizerSeatMapEditor(widget.eventId)),
                   ),
                   const SizedBox(height: 10),
                   _ActionCard(
                     icon: Icons.local_offer_rounded,
                     title: 'Set Pricing',
                     description: 'Configure ticket prices',
-                    onTap: () {
-                      context.go(AppRoutes.organizerPricingSetup);
-                    },
+                    onTap: () => context.go(AppRoutes.buildOrganizerPricingSetup(widget.eventId)),
                   ),
                   const SizedBox(height: 10),
                   _ActionCard(
                     icon: Icons.people_alt_rounded,
                     title: 'View Bookings',
                     description: 'See all ticket bookings',
-                    onTap: () {
-                      context.go(AppRoutes.organizerBookings);
-                    },
+                    onTap: () => context.go(AppRoutes.organizerBookings),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 24),
 
-            // ── Statistics Section ──────────────────────────────────────
-            _SectionHeader(title: 'STATISTICS'),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _StatCard(
-                      label: 'Tickets Sold',
-                      value: '450',
-                      color: _accentBlue,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _StatCard(
-                      label: 'Revenue',
-                      value: '\$12.5K',
-                      color: _accentGreen,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _StatCard(
-                      label: 'Remaining',
-                      value: '4550',
-                      color: _accentOrange,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // ── Danger Zone ─────────────────────────────────────────────
+            // ── Action buttons ──────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'DANGER ZONE',
-                    style: TextStyle(
-                      color: _textSecondary,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
+                  GestureDetector(
+                    onTap: _isSaving ? null : _save,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        gradient: const LinearGradient(colors: [_gradStart, _gradEnd]),
+                      ),
+                      child: Center(
+                        child: _isSaving
+                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: _textPrimary, strokeWidth: 2))
+                            : const Text('Save Changes', style: TextStyle(color: _textPrimary, fontSize: 14, fontWeight: FontWeight.w700)),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  GestureDetector(
-                    onTap: () {
-                      // Show confirmation dialog
-                      _showDeleteDialog(context);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: _bgCard,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: _accentRed.withValues(alpha: 0.3),
+                  if (status == 'DRAFT') ...[
+                    const SizedBox(height: 12),
+                    GestureDetector(
+                      onTap: _isSubmitting ? null : _submit,
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: _purpleLight.withValues(alpha: 0.4)),
+                        ),
+                        child: Center(
+                          child: _isSubmitting
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: _purpleLight, strokeWidth: 2))
+                              : const Text('Submit for Review', style: TextStyle(color: _purpleLight, fontSize: 14, fontWeight: FontWeight.w700)),
                         ),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.delete_outline_rounded,
-                            color: _accentRed,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Delete Event',
-                                  style: TextStyle(
-                                    color: _textPrimary,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Permanently delete this event',
-                                  style: TextStyle(
-                                    color: _textSecondary.withValues(alpha: 0.6),
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(
-                            Icons.chevron_right_rounded,
-                            color: _accentRed,
-                            size: 20,
-                          ),
-                        ],
-                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -433,88 +402,28 @@ class _EditEventPageState extends State<EditEventPage> {
           ],
         ),
       ),
-
-      // ── Bottom Navigation ────────────────────────────────────────────
       bottomNavigationBar: _OrganizerBottomNav(selectedIndex: 1),
-    );
-  }
-
-  void _showDeleteDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: _bgCard,
-        title: const Text(
-          'Delete Event?',
-          style: TextStyle(
-            color: _textPrimary,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        content: Text(
-          'This action cannot be undone. Are you sure you want to delete this event?',
-          style: TextStyle(
-            color: _textSecondary,
-            fontSize: 14,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(
-                color: _textSecondary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // Delete event
-            },
-            child: const Text(
-              'Delete',
-              style: TextStyle(
-                color: _accentRed,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
 
-// ── Section Header Widget ───────────────────────────────────────────────────
+// ── Shared widgets ───────────────────────────────────────────────────────────
+
 class _SectionHeader extends StatelessWidget {
   final String title;
-
   const _SectionHeader({required this.title});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          title,
+      child: Text(title,
           style: TextStyle(
-            color: _textSecondary,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.5,
-          ),
-        ),
-      ),
+              color: _textSecondary, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
     );
   }
 }
 
-// ── Text Input Field Widget ─────────────────────────────────────────────────
 class _TextInputField extends StatefulWidget {
   final String label;
   final TextEditingController controller;
@@ -544,9 +453,7 @@ class _TextInputFieldState extends State<_TextInputField> {
   void initState() {
     super.initState();
     _focusNode = FocusNode();
-    _focusNode.addListener(() {
-      setState(() => _focused = _focusNode.hasFocus);
-    });
+    _focusNode.addListener(() => setState(() => _focused = _focusNode.hasFocus));
   }
 
   @override
@@ -562,9 +469,7 @@ class _TextInputFieldState extends State<_TextInputField> {
         color: _bgCard,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: _focused
-              ? _purple.withValues(alpha: 0.3)
-              : Colors.white.withValues(alpha: 0.08),
+          color: _focused ? _purple.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.08),
         ),
       ),
       child: TextField(
@@ -575,29 +480,75 @@ class _TextInputFieldState extends State<_TextInputField> {
         keyboardType: widget.keyboardType,
         decoration: InputDecoration(
           hintText: widget.label,
-          hintStyle: TextStyle(
-            color: _textSecondary.withValues(alpha: 0.5),
-            fontSize: 13,
-          ),
-          prefixIcon: Icon(
-            widget.icon,
-            color: _textSecondary,
-            size: 18,
-          ),
+          hintStyle: TextStyle(color: _textSecondary.withValues(alpha: 0.5), fontSize: 13),
+          prefixIcon: Icon(widget.icon, color: _textSecondary, size: 18),
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(vertical: 12),
         ),
-        style: const TextStyle(
-          color: _textPrimary,
-          fontSize: 13,
-        ),
+        style: const TextStyle(color: _textPrimary, fontSize: 13),
         cursorColor: _purple,
       ),
     );
   }
 }
 
-// ── Action Card Widget ──────────────────────────────────────────────────────
+class _DatePickerField extends StatelessWidget {
+  final String label;
+  final DateTime? value;
+  final String display;
+  final Function(DateTime) onPick;
+
+  const _DatePickerField({
+    required this.label,
+    required this.value,
+    required this.display,
+    required this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () async {
+        final date = await showDatePicker(
+          context: context,
+          initialDate: value ?? DateTime.now(),
+          firstDate: DateTime.now().subtract(const Duration(days: 365)),
+          lastDate: DateTime(2099),
+        );
+        if (date == null || !context.mounted) return;
+        final time = await showTimePicker(context: context, initialTime: TimeOfDay.now());
+        if (time == null) return;
+        onPick(DateTime(date.year, date.month, date.day, time.hour, time.minute));
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: _bgCard,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Icon(Icons.calendar_today_rounded, color: _textSecondary, size: 18),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  display.isNotEmpty ? display : label,
+                  style: TextStyle(
+                    color: display.isNotEmpty ? _textPrimary : _textSecondary.withValues(alpha: 0.5),
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ActionCard extends StatefulWidget {
   final IconData icon;
   final String title;
@@ -628,16 +579,13 @@ class _ActionCardState extends State<_ActionCard> {
         child: AnimatedScale(
           scale: _hovered ? 1.02 : 1.0,
           duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
           child: Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: _bgCard,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: _hovered
-                    ? _purple.withValues(alpha: 0.2)
-                    : Colors.white.withValues(alpha: 0.08),
+                color: _hovered ? _purple.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.08),
               ),
             ),
             child: Row(
@@ -649,43 +597,21 @@ class _ActionCardState extends State<_ActionCard> {
                     color: _purple.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Center(
-                    child: Icon(
-                      widget.icon,
-                      color: _purpleLight,
-                      size: 20,
-                    ),
-                  ),
+                  child: Center(child: Icon(widget.icon, color: _purpleLight, size: 20)),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        widget.title,
-                        style: const TextStyle(
-                          color: _textPrimary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                      Text(widget.title, style: const TextStyle(color: _textPrimary, fontSize: 13, fontWeight: FontWeight.w700)),
                       const SizedBox(height: 2),
-                      Text(
-                        widget.description,
-                        style: TextStyle(
-                          color: _textSecondary.withValues(alpha: 0.6),
-                          fontSize: 11,
-                        ),
-                      ),
+                      Text(widget.description, style: TextStyle(color: _textSecondary.withValues(alpha: 0.6), fontSize: 11)),
                     ],
                   ),
                 ),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: _hovered ? _purpleLight : _textSecondary,
-                  size: 20,
-                ),
+                Icon(Icons.chevron_right_rounded,
+                    color: _hovered ? _purpleLight : _textSecondary, size: 20),
               ],
             ),
           ),
@@ -695,139 +621,47 @@ class _ActionCardState extends State<_ActionCard> {
   }
 }
 
-// ── Stat Card Widget ────────────────────────────────────────────────────────
-class _StatCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-
-  const _StatCard({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: _bgCard,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.08),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: _textSecondary,
-              fontSize: 9,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: const TextStyle(
-              color: _textPrimary,
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Container(
-            height: 3,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(2),
-            ),
-            child: FractionallySizedBox(
-              widthFactor: 0.75,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Bottom Navigation Bar ────────────────────────────────────────────────────
 class _OrganizerBottomNav extends StatelessWidget {
   final int selectedIndex;
-
   const _OrganizerBottomNav({required this.selectedIndex});
 
   @override
   Widget build(BuildContext context) {
-    final List<Map<String, dynamic>> navItems = [
+    final navItems = [
       {'icon': Icons.dashboard_rounded, 'label': 'Dashboard'},
       {'icon': Icons.event_rounded, 'label': 'My Events'},
       {'icon': Icons.assignment_rounded, 'label': 'Bookings'},
       {'icon': Icons.person_rounded, 'label': 'Profile'},
     ];
-
     return Container(
       decoration: BoxDecoration(
         color: _bgCard,
-        border: Border(
-          top: BorderSide(
-            color: Colors.white.withValues(alpha: 0.08),
-            width: 1,
-          ),
-        ),
+        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
       ),
       child: SafeArea(
         child: SizedBox(
           height: 70,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: List.generate(navItems.length, (index) {
-              final item = navItems[index];
-              final isSelected = selectedIndex == index;
+            children: List.generate(navItems.length, (i) {
+              final item = navItems[i];
+              final isSel = selectedIndex == i;
               return GestureDetector(
                 onTap: () {
-                  switch (index) {
-                    case 0:
-                      context.go(AppRoutes.organizerDashboard);
-                      break;
-                    case 1:
-                      context.go(AppRoutes.organizerMyEvents);
-                      break;
-                    case 2:
-                      context.go(AppRoutes.organizerBookings);
-                      break;
-                    case 3:
-                      context.go(AppRoutes.organizerProfile);
-                      break;
+                  switch (i) {
+                    case 0: context.go(AppRoutes.organizerDashboard); break;
+                    case 1: context.go(AppRoutes.organizerMyEvents); break;
+                    case 2: context.go(AppRoutes.organizerBookings); break;
+                    case 3: context.go(AppRoutes.organizerProfile); break;
                   }
                 },
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      item['icon'],
-                      color: isSelected ? _purpleLight : _textSecondary,
-                      size: 24,
-                    ),
+                    Icon(item['icon'] as IconData, color: isSel ? _purpleLight : _textSecondary, size: 24),
                     const SizedBox(height: 4),
-                    Text(
-                      item['label'],
-                      style: TextStyle(
-                        color: isSelected ? _purpleLight : _textSecondary,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    Text(item['label'] as String,
+                        style: TextStyle(color: isSel ? _purpleLight : _textSecondary, fontSize: 11, fontWeight: FontWeight.w600)),
                   ],
                 ),
               );

@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../providers/organizer_event_notifier.dart';
 
 // ─── Colour tokens ──────────────────────────────────────────────────────────
 const _bgDeep = Color(0xFF0D0B1E);
@@ -14,21 +17,20 @@ const _accentBlue = Color(0xFF4ECDC4);
 const _accentGreen = Color(0xFF4ECB71);
 const _accentGray = Color(0xFF3A3847);
 
-class SeatMapEditorPage extends StatefulWidget {
+class SeatMapEditorPage extends ConsumerStatefulWidget {
   final String eventId;
 
   const SeatMapEditorPage({super.key, required this.eventId});
 
   @override
-  State<SeatMapEditorPage> createState() => _SeatMapEditorPageState();
+  ConsumerState<SeatMapEditorPage> createState() => _SeatMapEditorPageState();
 }
 
-class _SeatMapEditorPageState extends State<SeatMapEditorPage> {
-  // Seat grid: 4 rows (A-D), 7 columns
-  // 0 = empty, 1 = available, 2 = premium, 3 = standard, 4 = economy, 5 = blocked
+class _SeatMapEditorPageState extends ConsumerState<SeatMapEditorPage> {
   late Map<String, List<int>> _seatGrid;
   late Map<String, Set<String>> _selectedSeats;
   String _currentZone = 'premium';
+  bool _isSaving = false;
 
   @override
   void initState() {
@@ -52,9 +54,7 @@ class _SeatMapEditorPageState extends State<SeatMapEditorPage> {
 
   int _getTotalSeats() {
     int total = 0;
-    _selectedSeats.forEach((zone, seats) {
-      total += seats.length;
-    });
+    _selectedSeats.forEach((zone, seats) { total += seats.length; });
     return total;
   }
 
@@ -71,12 +71,44 @@ class _SeatMapEditorPageState extends State<SeatMapEditorPage> {
     });
   }
 
-  void _addRow() {
-    // Add a new row
+  String? _getZoneForSeat(String seatId) {
+    for (var zone in _selectedSeats.entries) {
+      if (zone.value.contains(seatId)) return zone.key;
+    }
+    return null;
   }
 
-  void _removeRow() {
-    // Remove a row
+  Future<void> _saveSeatMap() async {
+    setState(() => _isSaving = true);
+    final id = int.tryParse(widget.eventId);
+    if (id == null) { setState(() => _isSaving = false); return; }
+
+    // Build JSON: { rows: [{ row, seats: [{ col, zone }] }] }
+    final seatData = <Map<String, dynamic>>[];
+    _seatGrid.forEach((row, seats) {
+      for (int col = 0; col < seats.length; col++) {
+        if (seats[col] == 1) {
+          final seatId = '$row${col + 1}';
+          final zone = _getZoneForSeat(seatId);
+          seatData.add({
+            'rowLabel': row,
+            'seatNumber': col + 1,
+            'zone': zone,
+            'status': 'AVAILABLE',
+          });
+        }
+      }
+    });
+
+    final json = jsonEncode({'seats': seatData});
+    final ok = await ref.read(organizerEventsProvider.notifier).saveSeatMap(id, json);
+
+    if (mounted) {
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ok ? 'Seat map saved' : 'Failed to save seat map')),
+      );
+    }
   }
 
   @override
@@ -98,42 +130,23 @@ class _SeatMapEditorPageState extends State<SeatMapEditorPage> {
                       children: [
                         GestureDetector(
                           onTap: () => context.pop(),
-                          child: const Icon(
-                            Icons.arrow_back_rounded,
-                            color: _textPrimary,
-                            size: 24,
-                          ),
+                          child: const Icon(Icons.arrow_back_rounded, color: _textPrimary, size: 24),
                         ),
                         const SizedBox(width: 12),
-                        const Text(
-                          'Seat Map Editor',
-                          style: TextStyle(
-                            color: _textPrimary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                        const Text('Seat Map Editor', style: TextStyle(color: _textPrimary, fontSize: 18, fontWeight: FontWeight.w700)),
                       ],
                     ),
                     GestureDetector(
-                      onTap: () {
-                        // Save seat map
-                      },
-                      child: const Text(
-                        'Save',
-                        style: TextStyle(
-                          color: _purpleLight,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
+                      onTap: _isSaving ? null : _saveSeatMap,
+                      child: Text(_isSaving ? 'Saving...' : 'Save',
+                          style: const TextStyle(color: _purpleLight, fontSize: 13, fontWeight: FontWeight.w600)),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 24),
 
-              // ── Stage Label ──────────────────────────────────────────
+              // ── Stage ──────────────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Container(
@@ -141,80 +154,10 @@ class _SeatMapEditorPageState extends State<SeatMapEditorPage> {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _purpleLight.withValues(alpha: 0.3),
-                      width: 1.5,
-                    ),
+                    border: Border.all(color: _purpleLight.withValues(alpha: 0.3), width: 1.5),
                   ),
                   child: const Center(
-                    child: Text(
-                      'S T A G E',
-                      style: TextStyle(
-                        color: _textSecondary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 2.0,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // ── Seat Editor Controls ─────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: _bgCard,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // Add/Remove row buttons
-                      Row(
-                        children: [
-                          _IconButton(
-                            icon: Icons.add_rounded,
-                            onTap: _addRow,
-                          ),
-                          const SizedBox(width: 12),
-                          _IconButton(
-                            icon: Icons.remove_rounded,
-                            onTap: _removeRow,
-                          ),
-                        ],
-                      ),
-                      // Pan to view all
-                      Text(
-                        'PAN TO VIEW ALL',
-                        style: TextStyle(
-                          color: _textSecondary.withValues(alpha: 0.6),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      // Grid layout buttons
-                      Row(
-                        children: [
-                          _IconButton(
-                            icon: Icons.grid_3x3_rounded,
-                            onTap: () {},
-                          ),
-                          const SizedBox(width: 12),
-                          _IconButton(
-                            icon: Icons.grid_4x4_rounded,
-                            onTap: () {},
-                          ),
-                        ],
-                      ),
-                    ],
+                    child: Text('S T A G E', style: TextStyle(color: _textSecondary, fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: 2.0)),
                   ),
                 ),
               ),
@@ -228,9 +171,7 @@ class _SeatMapEditorPageState extends State<SeatMapEditorPage> {
                   decoration: BoxDecoration(
                     color: _bgCard,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                   ),
                   child: Column(
                     children: _seatGrid.entries.map((rowEntry) {
@@ -240,20 +181,8 @@ class _SeatMapEditorPageState extends State<SeatMapEditorPage> {
                         padding: const EdgeInsets.only(bottom: 16),
                         child: Row(
                           children: [
-                            // Row label
-                            SizedBox(
-                              width: 30,
-                              child: Text(
-                                row,
-                                style: const TextStyle(
-                                  color: _textSecondary,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
+                            SizedBox(width: 30, child: Text(row, style: const TextStyle(color: _textSecondary, fontSize: 14, fontWeight: FontWeight.w700))),
                             const SizedBox(width: 12),
-                            // Seats
                             Expanded(
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -262,11 +191,8 @@ class _SeatMapEditorPageState extends State<SeatMapEditorPage> {
                                   final seatId = '$row${colIndex + 1}';
                                   final zone = _getZoneForSeat(seatId);
                                   final isSelected = _selectedSeats[_currentZone]!.contains(seatId);
-
                                   return GestureDetector(
-                                    onTap: seatStatus == 1
-                                        ? () => _toggleSeat(row, colIndex)
-                                        : null,
+                                    onTap: seatStatus == 1 ? () => _toggleSeat(row, colIndex) : null,
                                     child: _SeatWidget(
                                       seatStatus: seatStatus,
                                       zone: zone,
@@ -286,43 +212,21 @@ class _SeatMapEditorPageState extends State<SeatMapEditorPage> {
               ),
               const SizedBox(height: 28),
 
-              // ── Assign Zone Section ──────────────────────────────────
+              // ── Assign Zone ──────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Assign Zone',
-                      style: TextStyle(
-                        color: _textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                    const Text('Assign Zone', style: TextStyle(color: _textPrimary, fontSize: 15, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        _ZoneButton(
-                          label: 'Premium',
-                          color: _purple,
-                          isSelected: _currentZone == 'premium',
-                          onTap: () => setState(() => _currentZone = 'premium'),
-                        ),
+                        _ZoneButton(label: 'Premium', color: _purple, isSelected: _currentZone == 'premium', onTap: () => setState(() => _currentZone = 'premium')),
                         const SizedBox(width: 12),
-                        _ZoneButton(
-                          label: 'Standard',
-                          color: _accentBlue,
-                          isSelected: _currentZone == 'standard',
-                          onTap: () => setState(() => _currentZone = 'standard'),
-                        ),
+                        _ZoneButton(label: 'Standard', color: _accentBlue, isSelected: _currentZone == 'standard', onTap: () => setState(() => _currentZone = 'standard')),
                         const SizedBox(width: 12),
-                        _ZoneButton(
-                          label: 'Economy',
-                          color: _accentGreen,
-                          isSelected: _currentZone == 'economy',
-                          onTap: () => setState(() => _currentZone = 'economy'),
-                        ),
+                        _ZoneButton(label: 'Economy', color: _accentGreen, isSelected: _currentZone == 'economy', onTap: () => setState(() => _currentZone = 'economy')),
                       ],
                     ),
                   ],
@@ -330,7 +234,7 @@ class _SeatMapEditorPageState extends State<SeatMapEditorPage> {
               ),
               const SizedBox(height: 24),
 
-              // ── Zone Legend ──────────────────────────────────────────
+              // ── Legend ────────────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Container(
@@ -338,40 +242,18 @@ class _SeatMapEditorPageState extends State<SeatMapEditorPage> {
                   decoration: BoxDecoration(
                     color: _bgCard,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'ZONE LEGEND',
-                        style: TextStyle(
-                          color: _textSecondary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
+                      Text('ZONE LEGEND', style: TextStyle(color: _textSecondary, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
                       const SizedBox(height: 12),
-                      _LegendRow(
-                        color: _purple,
-                        label: 'Premium',
-                        count: _getZoneCount('premium'),
-                      ),
+                      _LegendRow(color: _purple, label: 'Premium', count: _getZoneCount('premium')),
                       const SizedBox(height: 10),
-                      _LegendRow(
-                        color: _accentBlue,
-                        label: 'Standard',
-                        count: _getZoneCount('standard'),
-                      ),
+                      _LegendRow(color: _accentBlue, label: 'Standard', count: _getZoneCount('standard')),
                       const SizedBox(height: 10),
-                      _LegendRow(
-                        color: _accentGreen,
-                        label: 'Economy',
-                        count: _getZoneCount('economy'),
-                      ),
+                      _LegendRow(color: _accentGreen, label: 'Economy', count: _getZoneCount('economy')),
                     ],
                   ),
                 ),
@@ -384,54 +266,23 @@ class _SeatMapEditorPageState extends State<SeatMapEditorPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'CAPACITY',
-                          style: TextStyle(
-                            color: _textSecondary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '${_getTotalSeats()} Seats',
-                          style: const TextStyle(
-                            color: _textPrimary,
-                            fontSize: 28,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ),
+                    Text('CAPACITY', style: TextStyle(color: _textSecondary, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+                    const SizedBox(height: 8),
+                    Text('${_getTotalSeats()} Seats', style: const TextStyle(color: _textPrimary, fontSize: 28, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 20),
-                    // Save button
                     GestureDetector(
-                      onTap: () {
-                        // Save seat map
-                      },
+                      onTap: _isSaving ? null : _saveSeatMap,
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          gradient: const LinearGradient(
-                            colors: [_gradStart, _gradEnd],
-                          ),
+                          gradient: const LinearGradient(colors: [_gradStart, _gradEnd]),
                         ),
-                        child: const Center(
-                          child: Text(
-                            'Save Seat Map',
-                            style: TextStyle(
-                              color: _textPrimary,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.3,
-                            ),
-                          ),
+                        child: Center(
+                          child: _isSaving
+                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: _textPrimary, strokeWidth: 2))
+                              : const Text('Save Seat Map', style: TextStyle(color: _textPrimary, fontSize: 15, fontWeight: FontWeight.w700)),
                         ),
                       ),
                     ),
@@ -445,64 +296,11 @@ class _SeatMapEditorPageState extends State<SeatMapEditorPage> {
       ),
     );
   }
-
-  String? _getZoneForSeat(String seatId) {
-    for (var zone in _selectedSeats.entries) {
-      if (zone.value.contains(seatId)) {
-        return zone.key;
-      }
-    }
-    return null;
-  }
-}
-
-// ── Icon Button widget ───────────────────────────────────────────────────────
-class _IconButton extends StatefulWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-
-  const _IconButton({required this.icon, required this.onTap});
-
-  @override
-  State<_IconButton> createState() => _IconButtonState();
-}
-
-class _IconButtonState extends State<_IconButton> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: _hovered ? _accentGray.withValues(alpha: 0.8) : _accentGray,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.1),
-            ),
-          ),
-          child: Center(
-            child: Icon(
-              widget.icon,
-              color: _textSecondary,
-              size: 18,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 // ── Seat Widget ──────────────────────────────────────────────────────────────
 class _SeatWidget extends StatelessWidget {
-  final int seatStatus; // 0 = empty, 1 = available, 5 = blocked
+  final int seatStatus;
   final String? zone;
   final bool isSelected;
   final String label;
@@ -516,77 +314,42 @@ class _SeatWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    late Color seatColor;
-    late double size;
+    if (seatStatus == 0) return const SizedBox.shrink();
 
-    if (seatStatus == 0) {
-      seatColor = Colors.transparent;
-      size = 0;
-      return const SizedBox.shrink();
-    } else if (seatStatus == 5) {
+    Color seatColor;
+    if (seatStatus == 5) {
       seatColor = _accentGray;
-      size = 28;
     } else if (isSelected) {
       switch (zone) {
-        case 'premium':
-          seatColor = _purple;
-          break;
-        case 'standard':
-          seatColor = _accentBlue;
-          break;
-        case 'economy':
-          seatColor = _accentGreen;
-          break;
-        default:
-          seatColor = _accentGray;
+        case 'premium': seatColor = _purple; break;
+        case 'standard': seatColor = _accentBlue; break;
+        case 'economy': seatColor = _accentGreen; break;
+        default: seatColor = _accentGray;
       }
-      size = 28;
     } else {
       seatColor = _accentGray.withValues(alpha: 0.4);
-      size = 28;
     }
 
     return Container(
-      width: size,
-      height: size,
+      width: 28,
+      height: 28,
       decoration: BoxDecoration(
         color: seatColor,
         borderRadius: BorderRadius.circular(6),
-        border: isSelected
-            ? Border.all(
-                color: seatColor,
-                width: 2,
-              )
-            : null,
-        boxShadow: isSelected
-            ? [
-                BoxShadow(
-                  color: seatColor.withValues(alpha: 0.4),
-                  blurRadius: 8,
-                  spreadRadius: 1,
-                ),
-              ]
-            : null,
+        boxShadow: isSelected ? [BoxShadow(color: seatColor.withValues(alpha: 0.4), blurRadius: 8, spreadRadius: 1)] : null,
       ),
       child: Center(
-        child: Text(
-          label,
-          style: TextStyle(
-            color: seatStatus == 0
-                ? Colors.transparent
-                : isSelected
-                    ? Colors.white
-                    : _textSecondary.withValues(alpha: 0.5),
-            fontSize: 9,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
+        child: Text(label,
+            style: TextStyle(
+                color: isSelected ? Colors.white : _textSecondary.withValues(alpha: 0.5),
+                fontSize: 9,
+                fontWeight: FontWeight.w700)),
       ),
     );
   }
 }
 
-// ── Zone Button widget ───────────────────────────────────────────────────────
+// ── Zone Button ───────────────────────────────────────────────────────────────
 class _ZoneButton extends StatefulWidget {
   final String label;
   final Color color;
@@ -605,88 +368,44 @@ class _ZoneButton extends StatefulWidget {
 }
 
 class _ZoneButtonState extends State<_ZoneButton> {
-  bool _hovered = false;
-
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedScale(
-        scale: _hovered ? 1.05 : 1.0,
-        duration: const Duration(milliseconds: 200),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            decoration: BoxDecoration(
-              color: widget.isSelected
-                  ? widget.color
-                  : widget.color.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(20),
-              border: widget.isSelected
-                  ? null
-                  : Border.all(
-                      color: widget.color.withValues(alpha: 0.3),
-                    ),
-            ),
-            child: Text(
-              widget.label,
-              style: TextStyle(
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        decoration: BoxDecoration(
+          color: widget.isSelected ? widget.color : widget.color.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(20),
+          border: widget.isSelected ? null : Border.all(color: widget.color.withValues(alpha: 0.3)),
+        ),
+        child: Text(widget.label,
+            style: TextStyle(
                 color: widget.isSelected ? Colors.white : widget.color,
                 fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ),
+                fontWeight: FontWeight.w700)),
       ),
     );
   }
 }
 
-// ── Legend Row widget ────────────────────────────────────────────────────────
+// ── Legend Row ────────────────────────────────────────────────────────────────
 class _LegendRow extends StatelessWidget {
   final Color color;
   final String label;
   final int count;
 
-  const _LegendRow({
-    required this.color,
-    required this.label,
-    required this.count,
-  });
+  const _LegendRow({required this.color, required this.label, required this.count});
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
-        ),
+        Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
         const SizedBox(width: 10),
-        Text(
-          label,
-          style: const TextStyle(
-            color: _textSecondary,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        Text(label, style: const TextStyle(color: _textSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
         const Spacer(),
-        Text(
-          '$count seats',
-          style: const TextStyle(
-            color: _textPrimary,
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
+        Text('$count seats', style: const TextStyle(color: _textPrimary, fontSize: 13, fontWeight: FontWeight.w700)),
       ],
     );
   }

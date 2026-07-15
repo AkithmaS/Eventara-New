@@ -71,38 +71,54 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     return Scaffold(
       backgroundColor: _bgDeep,
       body: userAsync.when(
-        loading: () => const Scaffold(
-          backgroundColor: _bgDeep,
-          body: Center(
-            child: CircularProgressIndicator(color: _purple),
+        loading: () => const Center(
+          child: CircularProgressIndicator(color: _purple),
+        ),
+        error: (err, stack) => Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, color: _textSecondary, size: 48),
+              const SizedBox(height: 16),
+              Text(
+                'Error loading profile',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: _textPrimary, fontSize: 16),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                err.toString(),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: _textSecondary, fontSize: 12),
+              ),
+              const SizedBox(height: 24),
+              GestureDetector(
+                onTap: () => ref.invalidate(userProfileProvider),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    gradient: const LinearGradient(
+                      colors: [_gradStart, _gradEnd],
+                    ),
+                  ),
+                  child: const Text(
+                    'Retry',
+                    style: TextStyle(
+                      color: _textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        error: (err, stack) => _buildErrorView(err),
         data: (user) {
           return _buildProfileView(user);
         },
       ),
       bottomNavigationBar: _BottomNavBar(),
-    );
-  }
-
-  Widget _buildErrorView(Object error) {
-    return Scaffold(
-      backgroundColor: _bgDeep,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, color: _textSecondary, size: 48),
-            const SizedBox(height: 16),
-            Text(
-              'Error loading profile: $error',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: _textPrimary),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -417,7 +433,8 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         user: user,
         onSave: (name, contact) {
           Navigator.pop(context);
-          ref.invalidate(userProfileProvider);
+          // Don't invalidate - just close the modal
+          // The user data will be refreshed when they navigate away and back
         },
       ),
     );
@@ -626,22 +643,34 @@ class _EditPersonalInformationViewState
 
     try {
       final dio = DioClient.instance.dio;
-      await dio.put(
+      print('Saving profile with: ${_nameController.text}, ${_contactController.text}');
+      
+      final response = await dio.put(
         ApiEndpoints.updateProfile,
         data: {
           'fullName': _nameController.text,
           'phoneNumber': _contactController.text,
         },
       );
+      
+      print('Response status: ${response.statusCode}');
+      print('Response data: ${response.data}');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Profile updated successfully')),
         );
-        Navigator.pop(context);
-        widget.onSave(_nameController.text, _contactController.text);
+        
+        // Wait a bit for the snackbar to show, then close
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+        if (mounted) {
+          Navigator.pop(context);
+          widget.onSave(_nameController.text, _contactController.text);
+        }
       }
     } catch (e) {
+      print('Error updating profile: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e')),
